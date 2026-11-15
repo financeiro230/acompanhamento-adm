@@ -8,17 +8,25 @@ const CFG = {
   idleMin: 30,
 };
 
-const COLS = [
-  {key:"ideias",    label:"💡 Ideias & Insights",     color:"#e0a800"},
-  {key:"rascunhos", label:"📝 Rascunhos",             color:"#8a94a6"},
-  {key:"standby",   label:"💤 Stand by",              color:"#5b6b8c"},
-  {key:"pendente",  label:"Iniciar / Pendente",       color:"#8a94a6"},
-  {key:"andamento", label:"Em andamento",             color:"#2f5bea"},
-  {key:"terceiros", label:"Dependendo de terceiros",  color:"#d98a00"},
-  {key:"douglas",   label:"Passar pro Douglas",       color:"#8a3ffc"},
+const DEFAULT_COLS = [
+  {key:"ideias",    label:"💡 Ideias & Insights",     color:"#e0a800", lado:"lateral"},
+  {key:"rascunhos", label:"📝 Rascunhos",             color:"#8a94a6", lado:"lateral"},
+  {key:"standby",   label:"💤 Stand by",              color:"#5b6b8c", lado:"lateral"},
+  {key:"pendente",  label:"Iniciar / Pendente",       color:"#8a94a6", lado:"principal"},
+  {key:"andamento", label:"Em andamento",             color:"#2f5bea", lado:"principal"},
+  {key:"terceiros", label:"Dependendo de terceiros",  color:"#d98a00", lado:"principal"},
+  {key:"douglas",   label:"Passar pro Douglas",       color:"#8a3ffc", lado:"principal"},
 ];
 const FIN = "finalizado";
-const LABEL = Object.fromEntries(COLS.map(c => [c.key, c.label])); LABEL[FIN] = "Finalizado";
+let COLS = DEFAULT_COLS.map(c => ({...c}));
+let LABEL = {};
+function setCols(list){
+  COLS = (Array.isArray(list) && list.length ? list : DEFAULT_COLS).map(c => ({key:c.key, label:c.label, color:c.color||"#8a94a6", lado:c.lado==="lateral"?"lateral":"principal"}));
+  LABEL = Object.fromEntries(COLS.map(c => [c.key, c.label])); LABEL[FIN] = "Finalizado";
+}
+setCols(null);
+const firstMain = () => (COLS.find(c => c.lado !== "lateral") || COLS[0]).key;
+const colLabel = k => LABEL[k] || "Quadro removido";
 const CORES = ["#2f5bea","#1f9d61","#d23b3b","#d98a00","#8a3ffc","#0891b2","#db2777","#5b6b8c","#65a30d","#ea580c"];
 
 /* ---------- helpers ---------- */
@@ -79,7 +87,21 @@ const API = window.API_MOCK || {
   async save(table, row){ const { error } = await sb.from(table).upsert(row); if (error) throw error; },
   async del(table, id){ const { error } = await sb.from(table).delete().eq("id", id); if (error) throw error; },
   async rpc(fn, args){ const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
+  async getConfig(chave){ const { data, error } = await sb.from("config").select("valor").eq("chave", chave).maybeSingle(); if (error) throw error; return data ? data.valor : null; },
+  async setConfig(chave, valor){ const { error } = await sb.from("config").upsert({ chave, valor, atualizado_em: new Date().toISOString() }); if (error) throw error; },
 };
+
+/* ---------- preferências e tema ---------- */
+const PREF_DEF = { tema:"claro", cor:"#2f5bea", sidebar:true, corEvento:"#2f5bea", corMissao:"#1f9d61", corPrazo:"#d98a00" };
+const prefs = () => Object.assign({}, PREF_DEF, (S.me && S.me.preferencias) || {});
+function applyTheme(p){
+  p = Object.assign({}, PREF_DEF, p || {});
+  document.body.dataset.t = ["claro","escuro","vidro"].includes(p.tema) ? p.tema : "claro";
+  const r = document.documentElement.style;
+  r.setProperty("--accent", p.cor); r.setProperty("--c-evento", p.corEvento); r.setProperty("--c-missao", p.corMissao); r.setProperty("--c-prazo", p.corPrazo);
+  try { localStorage.setItem("cu_theme", JSON.stringify({tema:p.tema, cor:p.cor})); } catch {}
+}
+try { applyTheme(JSON.parse(localStorage.getItem("cu_theme") || "null")); } catch { applyTheme(null); }
 
 /* ---------- estado ---------- */
 const S = {
@@ -159,15 +181,22 @@ function confirmBox(title, text, okLabel, onOk, okClass = "danger"){
   host.querySelector("[data-ok]").onclick = async () => { host.remove(); await onOk(); };
   host.querySelector(".overlay").addEventListener("mousedown", e => { if (e.target.classList.contains("overlay")) host.remove(); });
 }
-function swatchesHtml(sel, name = "cor"){
-  return `<div class="swatches" data-swname="${name}">${CORES.map(c => `<span class="sw ${c===sel?"on":""}" data-sw="${c}" style="background:${c}"></span>`).join("")}</div>`;
+function swatchesHtml(sel, name = "cor", def = null){
+  const defBtn = def ? `<span class="sw def ${!sel?"on":""}" data-sw="" title="Cor padrão (muda quando você altera a cor padrão)"><span style="background:${def}"></span></span>` : "";
+  return `<div class="swatches" data-swname="${name}">${defBtn}${CORES.map(c => `<span class="sw ${c===sel?"on":""}" data-sw="${c}" style="background:${c}"></span>`).join("")}
+    <label class="sw ${sel && !CORES.includes(sel)?"on":""}" title="Outra cor" style="background:${sel && !CORES.includes(sel)?sel:"conic-gradient(red,yellow,lime,cyan,blue,magenta,red)"};position:relative;overflow:hidden" data-swc><input type="color" value="${sel||def||"#2f5bea"}" style="opacity:0;position:absolute;inset:0;cursor:pointer"></label></div>`;
 }
+document.addEventListener("input", e => {
+  const lab = e.target.closest("[data-swc]"); if (!lab) return;
+  const box = lab.parentElement; box.querySelectorAll(".sw").forEach(x => x.classList.toggle("on", x === lab));
+  lab.style.background = e.target.value; lab.dataset.sw = e.target.value;
+});
 document.addEventListener("click", e => {
-  const sw = e.target.closest("[data-sw]"); if (!sw) return;
+  const sw = e.target.closest("[data-sw]"); if (!sw || sw.hasAttribute("data-swc")) return;
   const box = sw.parentElement; box.querySelectorAll(".sw").forEach(x => x.classList.toggle("on", x === sw));
   box.dataset.value = sw.dataset.sw;
 });
-const swValue = (root, name = "cor") => { const b = root.querySelector(`[data-swname="${name}"]`); if (!b) return null; const on = b.querySelector(".sw.on"); return on ? on.dataset.sw : null; };
+const swValue = (root, name = "cor") => { const b = root.querySelector(`[data-swname="${name}"]`); if (!b) return null; const on = b.querySelector(".sw.on"); return on ? (on.dataset.sw || null) : null; };
 
 /* ---------- prazo tag ---------- */
 function prazoTag(p, status){

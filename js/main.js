@@ -47,8 +47,8 @@ async function reloadSpace(showSpin){
   if (reloading) return; reloading = true;
   try {
     if (showSpin) $("#saving").textContent = "Carregando…";
-    const [d, e] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space)]);
-    S.demandas = d; S.eventos = e;
+    const [d, e, cols] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null)]);
+    S.demandas = d; S.eventos = e; if (cols) setCols(cols);
     if (showSpin) $("#saving").textContent = "";
     if (!modalOpen() || K.openId) renderAll();
   } catch(err){
@@ -65,6 +65,7 @@ async function startApp(uid){
   if (!me){ await API.logout(); showLogin("Seu usuário não tem perfil cadastrado. Fale com o administrador."); return; }
   if (!me.ativo){ await API.logout(); showLogin("Este usuário está desativado."); return; }
   S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
+  applyTheme(prefs());
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
   let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); if (s && S.perfis.find(p => p.id === s)) sp = s; } catch {}
   S.space = sp;
@@ -75,7 +76,18 @@ async function startApp(uid){
   await reloadSpace(true);
   resetIdle();
 }
+function buildLoginKb(){
+  const box = $("#loginKb"); if (!box || box.innerHTML) return;
+  const card = n => { const r = (n*7)%5; return `<div class="kc ${r===0?"hl":""}"><div class="l"></div><div class="l s"></div><div class="t">${r===1?'<b class="g"></b>':""}${r===2?'<b class="o"></b>':""}<b></b></div></div>`; };
+  let h = ""; for (let c = 0; c < 5; c++){ let cards = ""; for (let i = 0; i < 7; i++) cards += card(c*7+i); h += `<div class="kcol">${cards}${cards}</div>`; }
+  box.innerHTML = h;
+}
 function showLogin(msg){
+  buildLoginKb();
+  let saved = ""; try { saved = localStorage.getItem("cu_user") || ""; } catch {}
+  if (saved && !$("#lgUser").value) $("#lgUser").value = saved;
+  const hr = new Date().getHours();
+  $("#lgHello").textContent = (hr < 5 ? "Boa madrugada" : hr < 12 ? "Bom dia" : hr < 18 ? "Boa tarde" : "Boa noite") + " 👋";
   $("#boot").classList.add("hidden"); $("#app").classList.add("hidden"); $("#batch").classList.add("hidden");
   $("#login").classList.remove("hidden"); $("#lgErr").textContent = msg || "";
   $("#lgPass").value = ""; setTimeout(() => ($("#lgUser").value ? $("#lgPass") : $("#lgUser")).focus(), 50);
@@ -92,21 +104,68 @@ $("#loginForm").addEventListener("submit", async e => {
   const u = $("#lgUser").value.trim(), p = $("#lgPass").value;
   if (!u || !p){ $("#lgErr").textContent = "Preencha usuário e senha."; return; }
   $("#lgBtn").disabled = true; $("#lgErr").textContent = "";
-  try { const uid = await API.login(u, p); await startApp(uid); }
+  try {
+    const uid = await API.login(u, p);
+    try { if ($("#lgRemember").checked) localStorage.setItem("cu_user", u.toLowerCase()); else localStorage.removeItem("cu_user"); } catch {}
+    await startApp(uid);
+  }
   catch(err){ $("#lgErr").textContent = errMsg(err); }
   finally { $("#lgBtn").disabled = false; }
 });
+
+$("#lgEye").addEventListener("click", () => { const i = $("#lgPass"); i.type = i.type === "password" ? "text" : "password"; i.focus(); });
+["keyup","keydown"].forEach(ev => $("#lgPass").addEventListener(ev, e => { if (e.getModifierState) $("#lgCaps").classList.toggle("hidden", !e.getModifierState("CapsLock")); }));
+
+/* ---------- preferências ---------- */
+async function savePrefs(p){
+  S.me.preferencias = p; applyTheme(p);
+  try { await API.rpc("salvar_preferencias", { p }); } catch(e){ console.error(e); toast("Não foi possível salvar suas preferências: " + errMsg(e), true); }
+}
+function openAparencia(){
+  const orig = prefs(); const p = { ...orig };
+  const ACS = ["#2f5bea","#7c5cff","#0ea5a4","#1f9d61","#e0457b","#ea7a1a","#d23b3b","#334155"];
+  const ov = overlay(`<div class="mhead"><div class="mt">🎨 Aparência</div><button class="x" data-close>×</button></div>
+    <div class="mbody">
+      <label class="f">Tema</label>
+      <div class="seg" id="apT">${[["claro","☀️ Claro"],["escuro","🌙 Escuro"],["vidro","🫧 Vidro"]].map(([k,l]) => `<button type="button" data-tm="${k}" class="${p.tema===k?"on":""}">${l}</button>`).join("")}</div>
+      <div class="section"><label class="f">Cor de destaque</label>
+        <div class="swatches" id="apAc">${ACS.map(c => `<span class="sw ${c===p.cor?"on":""}" data-ac="${c}" style="background:${c}"></span>`).join("")}
+          <label class="sw" title="Outra cor" style="background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);position:relative;overflow:hidden"><input type="color" id="apAcPick" value="${p.cor}" style="opacity:0;position:absolute;inset:0;cursor:pointer"></label></div></div>
+      <div class="section"><label class="f">Cores padrão da agenda</label>
+        <div class="colorline"><input type="color" id="apEv" value="${p.corEvento}"> Eventos</div>
+        <div class="colorline"><input type="color" id="apMi" value="${p.corMissao}"> Missões</div>
+        <div class="colorline"><input type="color" id="apPr" value="${p.corPrazo}"> Prazos do kanban</div>
+        <p class="note" style="margin:4px 0 0">Compromissos com "cor padrão" mudam junto quando você troca aqui. Os que têm cor própria continuam com a cor escolhida.</p></div>
+      <div class="section"><label class="chk"><input type="checkbox" id="apSide" ${p.sidebar!==false?"checked":""}> Mostrar o menu lateral da agenda</label></div>
+      <p class="note" style="margin-top:14px">Suas preferências ficam salvas na sua conta e valem em qualquer computador.</p>
+    </div>
+    <div class="mfoot"><button class="btn ghost" id="apReset">Restaurar padrão</button><div class="spacer"></div><button class="btn" id="apCancel">Cancelar</button><button class="btn primary" id="apSave">Salvar</button></div>`, "mid", { onClose: () => { if (!saved) applyTheme(orig); } });
+  let saved = false;
+  const live = () => { applyTheme(p); if (S.view === "agenda") renderAgenda(); };
+  ov.addEventListener("click", e => {
+    const t = e.target.closest("[data-tm]"); if (t){ p.tema = t.dataset.tm; $$("#apT [data-tm]").forEach(x => x.classList.toggle("on", x === t)); live(); }
+    const a = e.target.closest("[data-ac]"); if (a){ p.cor = a.dataset.ac; $$("#apAc .sw").forEach(x => x.classList.toggle("on", x === a)); live(); }
+  });
+  $("#apAcPick").oninput = e => { p.cor = e.target.value; $$("#apAc .sw").forEach(x => x.classList.toggle("on", x === e.target.parentElement)); live(); };
+  [["#apEv","corEvento"],["#apMi","corMissao"],["#apPr","corPrazo"]].forEach(([sel,k]) => $(sel).oninput = e => { p[k] = e.target.value; live(); });
+  $("#apSide").onchange = e => { p.sidebar = e.target.checked; };
+  $("#apReset").onclick = () => { Object.assign(p, PREF_DEF); closeModal(true); saved = true; savePrefs({...p}); renderAll(); toast("Aparência restaurada."); };
+  $("#apCancel").onclick = () => closeModal(true);
+  $("#apSave").onclick = () => { saved = true; closeModal(true); savePrefs({...p}); renderAll(); toast("Aparência salva."); };
+}
 
 /* ---------- menu do usuário ---------- */
 $("#meBtn").addEventListener("click", () => {
   overlay(`<div class="mhead"><div class="mt">${esc(S.me.nome)}</div><button class="x" data-close>×</button></div>
     <div class="mbody" style="display:flex;flex-direction:column;gap:8px">
       <p class="note" style="margin:0 0 6px">Usuário: <b>@${esc(S.me.usuario)}</b> · ${isAdmin()?"Administrador":"Membro"}</p>
+      <button class="btn" id="meAp">🎨 Aparência (tema e cores)</button>
       <button class="btn" id="mePw">🔑 Trocar minha senha</button>
       <button class="btn" id="meOut">🚪 Sair</button>
       <p class="note" style="margin:6px 0 0">Por segurança, o sistema sai sozinho após ${CFG.idleMin} minutos sem uso ou quando você fecha a aba.</p>
     </div>`, "small");
   $("#mePw").onclick = () => { closeModal(true); passModal(S.me); };
+  $("#meAp").onclick = () => { closeModal(true); openAparencia(); };
   $("#meOut").onclick = () => logout();
 });
 $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));

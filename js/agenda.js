@@ -7,13 +7,13 @@ const REC = { nenhuma:"Não repete", diaria:"Todo dia", dias_uteis:"Dias úteis 
 const getE = id => S.eventos.find(e => e.id === id);
 const toMin = t => { if (!t) return null; const [h,m] = t.split(":").map(Number); return h*60+m; };
 const minToHm = m => `${pad(Math.floor(m/60))}:${pad(m%60)}`;
-const defColor = tipo => tipo === "missao" ? "#1f9d61" : "#2f5bea";
+const defColor = tipo => tipo === "missao" ? prefs().corMissao : tipo === "prazo" ? prefs().corPrazo : prefs().corEvento;
 
 /* ---------- recorrência ---------- */
 function occurrences(ev, from, to){
   const res = [];
   if (ev.recorrencia === "nenhuma" || !ev.recorrencia){
-    const end = ev.data_fim && ev.data_fim > ev.data ? ev.data_fim : ev.data;
+    const end = ev.tipo !== "missao" && ev.data_fim && ev.data_fim > ev.data ? ev.data_fim : ev.data;
     let d = parseYmd(ev.data > from ? ev.data : from); const last = end < to ? end : to;
     while (ymd(d) <= last){ res.push(ymd(d)); d = addDays(d, 1); }
     return res;
@@ -39,32 +39,39 @@ function instances(from, to){
   const out = [], today = todayYmd(), nowMin = new Date().getHours()*60 + new Date().getMinutes();
   for (const ev of S.eventos){
     if (!A.filt[ev.tipo]) continue;
+    const prazoMissao = ev.tipo === "missao" && ev.recorrencia === "nenhuma" && ev.data_fim && ev.data_fim > ev.data ? ev.data_fim : null;
     for (const date of occurrences(ev, from, to)){
-      const multi = ev.recorrencia === "nenhuma" && ev.data_fim && ev.data_fim > ev.data;
+      const multi = ev.tipo !== "missao" && ev.recorrencia === "nenhuma" && ev.data_fim && ev.data_fim > ev.data;
       const allDay = !ev.hora_inicio || multi;
       const start = allDay ? null : toMin(ev.hora_inicio);
       let end = allDay ? null : (ev.hora_fim ? toMin(ev.hora_fim) : start + (ev.tipo === "missao" ? 30 : 60));
       if (!allDay && end <= start) end = start + 30;
       const done = ev.tipo === "missao" && isDone(ev, date);
-      const late = ev.tipo === "missao" && !done && (date < today || (date === today && !allDay && (end ?? 0) < nowMin));
+      const late = ev.tipo === "missao" && !done && (prazoMissao ? prazoMissao < today
+        : (date < today || (date === today && !allDay && (end ?? 0) < nowMin)));
       out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:ev.titulo,
-        color: ev.cor || defColor(ev.tipo), done, late, rec: ev.recorrencia !== "nenhuma", local: ev.local });
+        color: ev.cor || defColor(ev.tipo), done, late, rec: ev.recorrencia !== "nenhuma", local: ev.local, prazo: prazoMissao });
+    }
+    if (prazoMissao && A.filt.missao && prazoMissao >= from && prazoMissao <= to && !ev.concluida){
+      out.push({ key:`e|${ev.id}|${ev.data}`, kind:"limite", id:ev.id, date:prazoMissao, allDay:true, start:null, end:null,
+        title:ev.titulo, color: ev.cor || defColor("missao"), done:false, late: prazoMissao < today });
     }
   }
   if (A.filt.prazo){
     for (const d of S.demandas){
       if (!d.prazo || d.status === FIN || d.prazo < from || d.prazo > to) continue;
       out.push({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, start:null, end:null,
-        title:d.titulo, color:"#d98a00", done:false, late: d.prazo < today });
+        title:d.titulo, color:defColor("prazo"), done:false, late: d.prazo < today });
     }
   }
   return out.sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
 }
 function lateList(){
   const today = todayYmd(), from = ymd(addDays(new Date(), -30)), yest = ymd(addDays(new Date(), -1));
-  const late = instances(from, today).filter(i => i.late && i.kind !== "prazo");
+  const seen = new Set();
+  const late = instances(from, today).filter(i => i.late && i.kind !== "prazo" && i.kind !== "limite" && !(i.prazo && seen.has(i.id)) && (seen.add(i.id), true));
   const prazos = S.demandas.filter(d => d.prazo && d.status !== FIN && d.prazo < today)
-    .map(d => ({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, title:d.titulo, color:"#d98a00", late:true }));
+    .map(d => ({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, title:d.titulo, color:defColor("prazo"), late:true }));
   return [...late, ...(A.filt.prazo ? prazos : [])].sort((a,b) => a.date.localeCompare(b.date));
 }
 
@@ -89,15 +96,17 @@ function toggleDone(id, date){
 /* ---------- render ---------- */
 function renderAgenda(){
   const v = $("#v-agenda");
-  v.innerHTML = `<aside class="ag-side" id="agSide"></aside>
+  v.innerHTML = `<aside class="ag-side ${prefs().sidebar===false?"closed":""}" id="agSide"></aside>
     <div class="ag-main">
       <div class="ag-bar">
+        <button class="btn ghost sbtoggle" data-ag="side" title="Mostrar/esconder menu lateral">☰</button>
         <button class="btn primary" data-ag="new">＋ Criar</button>
         <button class="btn" data-ag="today">Hoje</button>
         <button class="btn ghost" data-ag="prev" title="Anterior">‹</button>
         <button class="btn ghost" data-ag="next" title="Próximo">›</button>
         <h2>${esc(cap(agTitle()))}</h2>
         <div class="spacer"></div>
+        <button class="btn" data-ag="io" title="Exportar ou importar agenda">⇅ Exportar / importar</button>
         <div class="seg">${[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"]].map(([k,l]) => `<button data-mode="${k}" class="${A.mode===k?"on":""}">${l}</button>`).join("")}</div>
       </div>
       <div class="ag-body" id="agBody"></div>
@@ -111,10 +120,11 @@ function renderAgenda(){
     const key = A.mode + ymd(A.cursor);
     const allRow = body.querySelector(".wk-all"); const head = body.querySelector(".wk-head");
     if (allRow && head) allRow.style.top = head.offsetHeight + "px";
-    if (A.scrollKey !== key){ A.scrollKey = key; body.scrollTop = 7 * parseInt(getComputedStyle(document.documentElement).getPropertyValue("--hour")); }
-    else body.scrollTop = A.lastScroll || body.scrollTop;
+    const H7 = 7 * (parseInt(getComputedStyle(document.documentElement).getPropertyValue("--hour")) || 48);
+    if (A.scrollKey !== key){ A.scrollKey = key; A.lastScroll = H7; }
+    body.scrollTop = A.lastScroll ?? H7;
   }
-  body.onscroll = () => { A.lastScroll = body.scrollTop; };
+  body.onscroll = () => { if (A.mode === "semana" || A.mode === "dia") A.lastScroll = body.scrollTop; };
 }
 function weekStart(d){ return addDays(new Date(d.getFullYear(), d.getMonth(), d.getDate()), -d.getDay()); }
 function agTitle(){
@@ -154,9 +164,9 @@ function renderSide(){
       <button class="sum" data-ag="golist"><span>🗓 Próximos 7 dias</span><b>${sem}</b></button>
     </div>
     <div class="filt"><h4>Mostrar</h4>
-      <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:#2f5bea"></span> Eventos</label>
-      <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:#1f9d61"></span> Missões</label>
-      <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:#d98a00"></span> Prazos do kanban</label>
+      <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
+      <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
+      <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban</label>
     </div>
     <p class="note">Dica: clique num horário vazio para criar um compromisso ali.</p>`;
 }
@@ -164,10 +174,11 @@ function renderSide(){
 function chipHtml(i){
   const tip = `${i.title}${i.allDay ? "" : " · " + minToHm(i.start)}`;
   const cls = ["chip", i.done ? "done" : "", i.late ? "late" : ""];
-  if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
+  if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo do kanban: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
+  if (i.kind === "limite") return `<button class="chip ${i.late?"late":""}" data-inst="${i.key}" style="color:${i.color};background:${i.color}1f;border:1px dashed ${i.color}" title="Prazo final da missão: ${esc(i.title)}"><span class="t">⏰ Prazo: ${esc(i.title)}</span></button>`;
   if (i.kind === "missao"){
-    return `<button class="${cls.join(" ")}" data-inst="${i.key}" style="color:${i.color};background:${i.color}14" title="${esc(tip)}">
-      <span class="bx" data-done="${i.key}">${i.done?"✓":""}</span>${i.allDay?"":`<span class="hr">${minToHm(i.start)}</span>`}<span class="t">${esc(i.title)}</span></button>`;
+    return `<button class="${cls.join(" ")}" data-inst="${i.key}" style="color:color-mix(in srgb,${i.color} 72%,var(--ink));background:color-mix(in srgb,${i.color} 13%,transparent)" title="${esc(tip)}">
+      <span class="bx" data-done="${i.key}">${i.done?"✓":""}</span>${i.allDay?"":`<span class="hr">${minToHm(i.start)}</span>`}<span class="t">${esc(i.title)}</span>${i.prazo?`<span class="dl">até ${fmtYmd(i.prazo)}</span>`:""}</button>`;
   }
   if (i.allDay) return `<button class="${cls.join(" ")} solid" data-inst="${i.key}" style="background:${i.color}" title="${esc(tip)}"><span class="t">${i.rec?"↻ ":""}${esc(i.title)}</span></button>`;
   return `<button class="${cls.join(" ")}" data-inst="${i.key}" style="color:var(--ink)" title="${esc(tip)}"><span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span><span class="t">${esc(i.title)}</span></button>`;
@@ -240,10 +251,10 @@ function listHtml(){
   const inst = instances(today, end);
   const by = {}; inst.forEach(i => (by[i.date] = by[i.date] || []).push(i));
   const row = i => {
-    const tm = i.allDay ? (i.kind==="prazo" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
-    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":"Evento", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
+    const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
+    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
-      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":"📅"}</span>`}
+      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="limite"?"⏰":"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;
   };
   let h = "";
@@ -277,6 +288,8 @@ document.addEventListener("click", e => {
   if (ag){
     const a = ag.dataset.ag, c = A.cursor;
     if (a === "new") openEvento(null, { data: A.mode === "lista" ? todayYmd() : ymd(A.cursor) });
+    if (a === "side"){ const p = prefs(); p.sidebar = p.sidebar === false; savePrefs(p); $("#agSide").classList.toggle("closed", p.sidebar === false); return; }
+    if (a === "io"){ openIO(); return; }
     if (a === "today") A.cursor = new Date();
     if (a === "prev" || a === "next"){ const s = a === "prev" ? -1 : 1;
       if (A.mode === "mes") A.cursor = new Date(c.getFullYear(), c.getMonth()+s, 1);
@@ -306,6 +319,10 @@ function openDemandaFromAgenda(id){
 }
 
 /* ---------- modal evento / missão ---------- */
+function whoHtml(sel){
+  return `<div class="section"><label class="f">Para quem</label><div class="who" id="evWho">${S.perfis.filter(p => p.ativo).map(p => `<label><input type="checkbox" value="${p.id}" ${p.id===sel?"checked":""}><span class="mini-av" style="background:${p.cor}">${esc(initials(p.nome))}</span>${esc(p.nome)}${p.id===S.me.id?" (eu)":""}</label>`).join("")}</div>
+    <p class="note" style="margin:6px 0 0">Marque várias pessoas para criar a mesma missão ou evento para cada uma. Cada pessoa conclui a sua.</p></div>`;
+}
 function openEvento(id, pre = {}, dateCtx = null){
   const ev = id ? getE(id) : null;
   if (id && !ev) return;
@@ -322,13 +339,16 @@ function openEvento(id, pre = {}, dateCtx = null){
   let dirty = false;
   const statusBlock = ev && ev.tipo === "missao" ? (() => {
     const done = isDone(ev, ctx);
+    const lim = ev.recorrencia === "nenhuma" && ev.data_fim ? ev.data_fim : ctx;
     return `<div class="dates" style="align-items:center;justify-content:space-between">
-      <div><b>Situação ${rec ? "em " + fmtYmd(ctx) : ""}</b>${done ? "✅ Concluída" : (ctx < todayYmd() ? "⚠ Atrasada" : "⏳ Em aberto")}</div>
+      <div><b>Situação ${rec ? "em " + fmtYmd(ctx) : ""}</b>${done ? "✅ Concluída" : (lim < todayYmd() ? "⚠ Atrasada" : "⏳ Em aberto")}${!rec && ev.data_fim ? ` · prazo final ${fmtYmd(ev.data_fim)}` : ""}</div>
       <button class="btn ${done?"":"ok"}" id="evDone">${done ? "↺ Reabrir" : "✓ Marcar como concluída"}</button></div>`;
   })() : "";
   const hist = ev && (ev.historico||[]).length ? `<div class="section"><h3>🕓 Histórico</h3><ul class="timeline">${[...ev.historico].sort((a,z)=>z.em-a.em).map(x => `<li class="${x.tipo}"><div class="tl-when">${fmt(x.em)}${x.por?" · por "+esc(x.por):""}</div><div class="tl-what">${esc(x.texto)}</div></li>`).join("")}</ul></div>` : "";
-  const w = parseYmd(d.data);
-  const recOpt = k => k === "semanal" ? `Toda semana (${w.toLocaleDateString("pt-BR",{weekday:"long"})})` : k === "mensal" ? `Todo mês (dia ${w.getDate()})` : k === "anual" ? `Todo ano (${w.toLocaleDateString("pt-BR",{day:"numeric",month:"long"})})` : REC[k];
+  const recLabel = (k, w) => k === "semanal" ? `Toda semana (${w.toLocaleDateString("pt-BR",{weekday:"long"})})` : k === "mensal" ? `Todo mês (dia ${w.getDate()})` : k === "anual" ? `Todo ano (${w.toLocaleDateString("pt-BR",{day:"numeric",month:"long"})})` : REC[k];
+  const recOpts = (w, v) => Object.keys(REC).map(k => `<option value="${k}" ${v===k?"selected":""}>${esc(recLabel(k, w))}</option>`).join("");
+  const hasFim = !!d.data_fim;
+  const hint = t => t==="missao" ? "Missão é algo para fazer: você marca como concluída. Pode ter um prazo final." : "Evento é um compromisso com dia e horário: reunião, visita, entrega…";
 
   const ov = overlay(`<div class="mhead"><div class="mt">${ev ? (ev.tipo==="missao"?"Missão":"Evento") : "Novo compromisso"}</div><button class="x" data-close>×</button></div>
     <form class="mbody" id="evForm">
@@ -336,27 +356,29 @@ function openEvento(id, pre = {}, dateCtx = null){
         <button type="button" data-tipo="evento" class="${d.tipo==="evento"?"on":""}">📅 Evento</button>
         <button type="button" data-tipo="missao" class="${d.tipo==="missao"?"on":""}">🎯 Missão</button>
       </div>
-      <p class="note" id="evTipoHint" style="margin:-6px 0 12px">${d.tipo==="missao" ? "Missão é algo para fazer: tem prazo e você marca como concluída." : "Evento é um compromisso com dia e horário: reunião, visita, entrega…"}</p>
+      <p class="note" id="evTipoHint" style="margin:-6px 0 12px">${hint(d.tipo)}</p>
       ${statusBlock}
       <input class="fld" id="evT" placeholder="${d.tipo==="missao"?"O que precisa ser feito?":"Título do evento"}" value="${esc(d.titulo)}" style="font-size:16px;font-weight:600">
       <div class="grid3 section">
-        <div><label class="f" id="evDataLbl">${d.tipo==="missao"?"Prazo":"Data"}</label><input class="fld" type="date" id="evD" value="${esc(d.data)}"></div>
+        <div><label class="f" id="evDataLbl">${d.tipo==="missao"?"Fazer em":"Data"}</label><input class="fld" type="date" id="evD" value="${esc(d.data)}"></div>
         <div class="evHora ${semHora?"hidden":""}"><label class="f">Início</label><input class="fld" type="time" id="evHi" value="${esc(hm(d.hora_inicio)||"09:00")}"></div>
         <div class="evHora ${semHora?"hidden":""}"><label class="f">Fim</label><input class="fld" type="time" id="evHf" value="${esc(hm(d.hora_fim)||"")}"></div>
       </div>
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap">
         <label class="chk"><input type="checkbox" id="evSem" ${semHora?"checked":""}> <span id="evSemLbl">${d.tipo==="missao"?"Sem horário (só o dia)":"Dia inteiro"}</span></label>
-        <label class="chk evMulti ${d.tipo==="missao"?"hidden":""}"><input type="checkbox" id="evMultiChk" ${d.data_fim?"checked":""}> Vários dias</label>
+        <label class="chk"><input type="checkbox" id="evFimChk" ${hasFim?"checked":""}> <span id="evFimLbl">${d.tipo==="missao"?"Tem prazo final":"Vários dias"}</span></label>
       </div>
-      <div class="section evMultiBox ${d.data_fim && d.tipo!=="missao"?"":"hidden"}"><label class="f">Até o dia</label><input class="fld" type="date" id="evDf" value="${esc(d.data_fim||"")}"></div>
+      <div class="section evFimBox ${hasFim?"":"hidden"}"><label class="f" id="evFimLbl2">${d.tipo==="missao"?"Prazo final":"Até o dia"}</label><input class="fld" type="date" id="evDf" value="${esc(d.data_fim||"")}" style="max-width:220px">
+        <p class="note" id="evFimHint" style="margin:6px 0 0">${d.tipo==="missao"?"A missão aparece no dia de fazer e o prazo final fica marcado com ⏰. Só fica atrasada depois do prazo final.":""}</p></div>
       <div class="grid2 section">
-        <div><label class="f">Repetir</label><select class="fld" id="evR">${Object.keys(REC).map(k => `<option value="${k}" ${d.recorrencia===k?"selected":""}>${esc(recOpt(k))}</option>`).join("")}</select></div>
+        <div><label class="f">Repetir</label><select class="fld" id="evR">${recOpts(parseYmd(d.data), d.recorrencia)}</select></div>
         <div class="evRAte ${d.recorrencia==="nenhuma"?"hidden":""}"><label class="f">Repetir até (opcional)</label><input class="fld" type="date" id="evRa" value="${esc(d.recorrencia_ate||"")}"></div>
       </div>
       <div class="section"><label class="f">Local</label><input class="fld" id="evL" placeholder="Ex.: Loja Riomar, Google Meet…" value="${esc(d.local||"")}"></div>
       <div class="section"><label class="f">Descrição / observações</label><textarea class="fld" id="evDesc">${esc(d.descricao||"")}</textarea></div>
-      <div class="section"><label class="f">Cor</label>${swatchesHtml(d.cor || defColor(d.tipo))}</div>
-      ${donoSelectHtml("evO", d.dono)}
+      <div class="section"><label class="f">Cor</label><div id="evCorBox">${swatchesHtml(d.cor, "cor", defColor(d.tipo))}</div>
+        <p class="note" style="margin:6px 0 0">A primeira opção (quadriculada) segue a cor padrão, que você muda em 🎨 Aparência. As outras deixam a cor fixa.</p></div>
+      ${isAdmin() ? (ev ? donoSelectHtml("evO", d.dono) : whoHtml(d.dono)) : ""}
       ${hist}
     </form>
     <div class="mfoot">${ev ? `<button class="btn danger" id="evDel">Excluir${rec?" (todas)":""}</button>` : ""}
@@ -365,24 +387,33 @@ function openEvento(id, pre = {}, dateCtx = null){
   f.addEventListener("input", () => { dirty = true; });
   ov.addEventListener("click", e => { if (e.target.closest("[data-sw]")) dirty = true; });
   let tipo = d.tipo;
+  const syncFim = () => {
+    const rOn = $("#evR").value !== "nenhuma";
+    const chk = $("#evFimChk").closest("label");
+    chk.classList.toggle("hidden", tipo === "missao" && rOn);
+    if (tipo === "missao" && rOn){ $("#evFimChk").checked = false; $(".evFimBox").classList.add("hidden"); }
+  };
   $$("#evTipo [data-tipo]").forEach(b => b.onclick = () => {
     tipo = b.dataset.tipo; dirty = true;
     $$("#evTipo [data-tipo]").forEach(x => x.classList.toggle("on", x === b));
-    $("#evTipoHint").textContent = tipo==="missao" ? "Missão é algo para fazer: tem prazo e você marca como concluída." : "Evento é um compromisso com dia e horário: reunião, visita, entrega…";
-    $("#evDataLbl").textContent = tipo==="missao" ? "Prazo" : "Data";
+    $("#evTipoHint").textContent = hint(tipo);
+    $("#evDataLbl").textContent = tipo==="missao" ? "Fazer em" : "Data";
     $("#evSemLbl").textContent = tipo==="missao" ? "Sem horário (só o dia)" : "Dia inteiro";
+    $("#evFimLbl").textContent = tipo==="missao" ? "Tem prazo final" : "Vários dias";
+    $("#evFimLbl2").textContent = tipo==="missao" ? "Prazo final" : "Até o dia";
+    $("#evFimHint").textContent = tipo==="missao" ? "A missão aparece no dia de fazer e o prazo final fica marcado com ⏰. Só fica atrasada depois do prazo final." : "";
     $("#evT").placeholder = tipo==="missao" ? "O que precisa ser feito?" : "Título do evento";
-    $(".evMulti").classList.toggle("hidden", tipo==="missao");
-    if (tipo==="missao"){ $("#evMultiChk").checked = false; $(".evMultiBox").classList.add("hidden"); }
-    const box = $(`[data-swname="cor"]`), cur = swValue(ov);
-    if (!cur || cur === defColor(tipo==="missao"?"evento":"missao")) box.querySelectorAll(".sw").forEach(s => s.classList.toggle("on", s.dataset.sw === defColor(tipo)));
+    const cur = swValue(ov);
+    $("#evCorBox").innerHTML = swatchesHtml(cur, "cor", defColor(tipo));
+    syncFim();
   });
   $("#evSem").onchange = e => $$(".evHora").forEach(x => x.classList.toggle("hidden", e.target.checked));
-  $("#evMultiChk").onchange = e => { $(".evMultiBox").classList.toggle("hidden", !e.target.checked); if (e.target.checked && !$("#evDf").value) $("#evDf").value = ymd(addDays(parseYmd($("#evD").value||todayYmd()),1)); };
-  $("#evR").onchange = e => $(".evRAte").classList.toggle("hidden", e.target.value === "nenhuma");
-  $("#evD").onchange = () => { const w2 = parseYmd($("#evD").value || todayYmd()); const sel = $("#evR"), v = sel.value;
-    sel.innerHTML = Object.keys(REC).map(k => `<option value="${k}" ${v===k?"selected":""}>${esc(k==="semanal"?`Toda semana (${w2.toLocaleDateString("pt-BR",{weekday:"long"})})`:k==="mensal"?`Todo mês (dia ${w2.getDate()})`:k==="anual"?`Todo ano (${w2.toLocaleDateString("pt-BR",{day:"numeric",month:"long"})})`:REC[k])}</option>`).join(""); };
+  $("#evFimChk").onchange = e => { $(".evFimBox").classList.toggle("hidden", !e.target.checked);
+    if (e.target.checked && !$("#evDf").value) $("#evDf").value = ymd(addDays(parseYmd($("#evD").value||todayYmd()), tipo==="missao" ? 3 : 1)); };
+  $("#evR").onchange = e => { $(".evRAte").classList.toggle("hidden", e.target.value === "nenhuma"); syncFim(); };
+  $("#evD").onchange = () => { const sel = $("#evR"), v = sel.value; sel.innerHTML = recOpts(parseYmd($("#evD").value || todayYmd()), v); };
   $("#evHi").onchange = () => { const a = toMin($("#evHi").value), b = toMin($("#evHf").value); if (a !== null && (b === null || b <= a)) $("#evHf").value = minToHm(Math.min(a+60, 1439)); };
+  syncFim();
   if (!ev) setTimeout(() => $("#evT").focus(), 30);
   const done = $("#evDone"); if (done) done.onclick = () => { toggleDone(ev.id, ctx); closeModal(true); };
   const del = $("#evDel"); if (del) del.onclick = () => confirmBox(rec ? "Excluir todas as ocorrências?" : "Excluir este compromisso?", rec ? "O compromisso repetido some da agenda em todas as datas." : "Ele será apagado de vez.", "Excluir", async () => {
@@ -394,23 +425,170 @@ function openEvento(id, pre = {}, dateCtx = null){
     const sem = $("#evSem").checked;
     const hi = sem ? null : ($("#evHi").value || null), hf = sem ? null : ($("#evHf").value || null);
     if (hi && hf && toMin(hf) <= toMin(hi)){ toast("O horário de fim precisa ser depois do início.", true); return; }
-    const multi = tipo === "evento" && $("#evMultiChk").checked;
-    const df = multi ? $("#evDf").value : null;
-    if (df && df <= data){ toast('"Até o dia" precisa ser depois da data inicial.', true); return; }
-    const recV = $("#evR").value, ra = recV === "nenhuma" ? null : ($("#evRa").value || null);
+    const recV = $("#evR").value;
+    const usaFim = $("#evFimChk").checked && !(tipo === "missao" && recV !== "nenhuma");
+    const df = usaFim ? $("#evDf").value : null;
+    if (usaFim && !df){ toast(tipo==="missao" ? "Escolha a data do prazo final." : 'Escolha "até o dia".', true); return; }
+    if (df && df < data){ toast(tipo==="missao" ? "O prazo final não pode ser antes do dia de fazer." : '"Até o dia" precisa ser depois da data inicial.', true); return; }
+    const ra = recV === "nenhuma" ? null : ($("#evRa").value || null);
     if (ra && ra < data){ toast('"Repetir até" precisa ser depois da data.', true); return; }
-    const dono = $("#evO") ? $("#evO").value : (ev ? ev.dono : S.space);
+    let donos;
+    if (ev) donos = [$("#evO") ? $("#evO").value : ev.dono];
+    else if ($("#evWho")) { donos = $$("#evWho input:checked").map(x => x.value); if (!donos.length){ toast("Escolha para quem é.", true); return; } }
+    else donos = [S.space];
     const now = Date.now();
-    const row = Object.assign(ev ? clone(ev) : { id: uuid(), criado_em: now, criado_por: S.me.id, concluida:false, concluida_em:null, concluidas:[], historico:[] }, {
-      dono, tipo, titulo, data, data_fim: df || null, hora_inicio: hi, hora_fim: hf, local: $("#evL").value.trim(),
-      descricao: $("#evDesc").value.trim(), cor: swValue(ov) || null, recorrencia: recV, recorrencia_ate: ra, atualizado_em: now,
+    const base = { tipo, titulo, data, data_fim: df && df !== data ? df : null, hora_inicio: hi, hora_fim: hf, local: $("#evL").value.trim(),
+      descricao: $("#evDesc").value.trim(), cor: swValue(ov), recorrencia: recV, recorrencia_ate: ra, atualizado_em: now };
+    const rows = donos.map(dono => {
+      const row = Object.assign(ev ? clone(ev) : { id: uuid(), criado_em: now, criado_por: S.me.id, concluida:false, concluida_em:null, concluidas:[], historico:[] }, base, { dono });
+      row.historico = row.historico || [];
+      const h = ev ? {tipo:"edicao", em:now, texto:"Editado"} : {tipo:"criado", em:now, texto: tipo==="missao" ? "Missão criada" : "Evento criado"};
+      if (S.me.id !== dono) h.por = S.me.nome;
+      if (!ev && donos.length > 1) h.texto += ` (para ${donos.length} pessoas)`;
+      row.historico.push(h);
+      return row;
     });
-    row.historico = row.historico || [];
-    row.historico.push(actorTag(ev ? {tipo:"edicao", em:now, texto:"Editado"} : {tipo:"criado", em:now, texto: tipo==="missao" ? "Missão criada" : "Evento criado"}));
-    if (ev){ Object.assign(ev, row); if (row.dono !== S.space) S.eventos = S.eventos.filter(x => x.id !== row.id); }
-    else if (row.dono === S.space) S.eventos.push(row);
+    for (const row of rows){
+      if (ev){ Object.assign(ev, row); if (row.dono !== S.space) S.eventos = S.eventos.filter(x => x.id !== row.id); }
+      else if (row.dono === S.space) S.eventos.push(row);
+    }
     dirty = false; closeModal(true); renderAll();
-    toast(ev ? "Alterações salvas." : (row.dono === S.space ? (tipo==="missao" ? "Missão criada." : "Evento criado.") : `Criado na agenda de ${perfil(row.dono).nome}.`));
-    persist("eventos", row);
+    const nomes = donos.filter(x => x !== S.space).map(x => perfil(x)?.nome).filter(Boolean);
+    toast(ev ? "Alterações salvas." : donos.length > 1 ? `Criado para ${donos.length} pessoas.` : (nomes.length ? `Criado na agenda de ${nomes[0]}.` : (tipo==="missao" ? "Missão criada." : "Evento criado.")));
+    rows.forEach(r => persist("eventos", r));
+  };
+}
+
+/* ---------- exportar / importar ---------- */
+const icsEsc = t => String(t||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\;");
+const icsDate = s => s.replace(/-/g,"");
+function icsFold(line){ const out = []; while (line.length > 73){ out.push(line.slice(0,73)); line = " " + line.slice(73); } out.push(line); return out.join("\r\n"); }
+function buildIcs(evs){
+  const L = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Acompanhamento ADM//PT-BR","CALSCALE:GREGORIAN","METHOD:PUBLISH","X-WR-CALNAME:Acompanhamento ADM","X-WR-TIMEZONE:America/Recife",
+    "BEGIN:VTIMEZONE","TZID:America/Recife","BEGIN:STANDARD","DTSTART:19700101T000000","TZOFFSETFROM:-0300","TZOFFSETTO:-0300","TZNAME:-03","END:STANDARD","END:VTIMEZONE"];
+  const stamp = new Date().toISOString().replace(/[-:]/g,"").replace(/\.\d+/,"");
+  const RR = { diaria:"FREQ=DAILY", dias_uteis:"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", semanal:"FREQ=WEEKLY", mensal:"FREQ=MONTHLY", anual:"FREQ=YEARLY" };
+  for (const e of evs){
+    L.push("BEGIN:VEVENT", `UID:${e.id}@acompanhamento-adm`, `DTSTAMP:${stamp}`);
+    const missao = e.tipo === "missao";
+    L.push(icsFold("SUMMARY:" + icsEsc((missao ? "[Missão] " : "") + e.titulo)));
+    const fim = !missao && e.data_fim && e.data_fim > e.data ? e.data_fim : e.data;
+    if (!e.hora_inicio){
+      L.push(`DTSTART;VALUE=DATE:${icsDate(e.data)}`, `DTEND;VALUE=DATE:${icsDate(ymd(addDays(parseYmd(fim),1)))}`);
+    } else {
+      const ini = toMin(e.hora_inicio); let end = e.hora_fim ? toMin(e.hora_fim) : ini + (missao ? 30 : 60); if (end <= ini) end = ini + 30; end = Math.min(end, 1439);
+      const t = m => `${pad(Math.floor(m/60))}${pad(m%60)}00`;
+      L.push(`DTSTART;TZID=America/Recife:${icsDate(e.data)}T${t(ini)}`, `DTEND;TZID=America/Recife:${icsDate(fim)}T${t(end)}`);
+    }
+    if (e.recorrencia && e.recorrencia !== "nenhuma") L.push(`RRULE:${RR[e.recorrencia]}${e.recorrencia_ate ? ";UNTIL=" + icsDate(e.recorrencia_ate) + "T235959" : ""}`);
+    const desc = [e.descricao, missao && e.data_fim ? `Prazo final: ${fmtYmd(e.data_fim,{day:"2-digit",month:"2-digit",year:"numeric"})}` : ""].filter(Boolean).join("\n");
+    if (desc) L.push(icsFold("DESCRIPTION:" + icsEsc(desc)));
+    if (e.local) L.push(icsFold("LOCATION:" + icsEsc(e.local)));
+    if (missao) L.push("CATEGORIES:Missão");
+    L.push("END:VEVENT");
+  }
+  L.push("END:VCALENDAR");
+  return L.join("\r\n");
+}
+function parseIcs(text){
+  const lines = text.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+  const out = []; let cur = null;
+  const unesc = v => v.replace(/\\n/gi,"\n").replace(/\\,/g,",").replace(/\;/g,";").replace(/\\\\/g,"\\");
+  const parseDT = (params, v) => {
+    if (/VALUE=DATE(?!-)/i.test(params) || /^\d{8}$/.test(v)) return { date: `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`, time: null };
+    const m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z?)$/); if (!m) return null;
+    let d = m[7] ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5])) : new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5]);
+    return { date: ymd(d), time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
+  };
+  for (const raw of lines){
+    if (raw === "BEGIN:VEVENT"){ cur = {}; continue; }
+    if (raw === "END:VEVENT"){ if (cur) out.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const i = raw.indexOf(":"); if (i < 0) continue;
+    const head = raw.slice(0, i), val = raw.slice(i+1);
+    const [name, ...ps] = head.split(";"); const params = ps.join(";");
+    const N = name.toUpperCase();
+    if (N === "SUMMARY") cur.summary = unesc(val);
+    else if (N === "DESCRIPTION") cur.desc = unesc(val);
+    else if (N === "LOCATION") cur.loc = unesc(val);
+    else if (N === "DTSTART") cur.start = parseDT(params, val);
+    else if (N === "DTEND") cur.end = parseDT(params, val);
+    else if (N === "RRULE") cur.rrule = val.toUpperCase();
+    else if (N === "STATUS") cur.status = val.toUpperCase();
+    else if (N === "CATEGORIES") cur.cat = unesc(val);
+  }
+  const now = Date.now();
+  return out.filter(x => x.start && x.summary && x.status !== "CANCELLED").map(x => {
+    let titulo = x.summary.trim(), tipo = "evento";
+    if (/^\[miss[aã]o\]\s*/i.test(titulo) || /miss[aã]o/i.test(x.cat||"")){ tipo = "missao"; titulo = titulo.replace(/^\[miss[aã]o\]\s*/i, ""); }
+    let data = x.start.date, data_fim = null, hi = x.start.time, hf = null;
+    if (x.end){
+      if (!hi){ const last = ymd(addDays(parseYmd(x.end.date), -1)); if (last > data) data_fim = last; }
+      else { if (x.end.date === data) hf = x.end.time; else if (x.end.date > data) data_fim = x.end.date; }
+    }
+    let recorrencia = "nenhuma", recorrencia_ate = null;
+    if (x.rrule){
+      const g = k => (x.rrule.match(new RegExp(k + "=([^;]+)")) || [])[1];
+      const fq = g("FREQ"), by = g("BYDAY") || "", un = g("UNTIL");
+      recorrencia = fq === "DAILY" ? "diaria" : fq === "WEEKLY" ? (/MO/.test(by) && /FR/.test(by) && by.split(",").length === 5 ? "dias_uteis" : "semanal") : fq === "MONTHLY" ? "mensal" : fq === "YEARLY" ? "anual" : "nenhuma";
+      if (un) recorrencia_ate = `${un.slice(0,4)}-${un.slice(4,6)}-${un.slice(6,8)}`;
+      if (recorrencia !== "nenhuma") data_fim = null;
+    }
+    let descricao = x.desc || "";
+    if (tipo === "missao"){ const m = descricao.match(/Prazo final: (\d{2})\/(\d{2})\/(\d{4})/); if (m){ data_fim = `${m[3]}-${m[2]}-${m[1]}`; descricao = descricao.replace(/\n?Prazo final: .*$/, "").trim(); } }
+    return { tipo, titulo, descricao, data, data_fim, hora_inicio: hi, hora_fim: hf, local: x.loc || "", cor: null, recorrencia, recorrencia_ate,
+      concluida:false, concluida_em:null, concluidas:[], criado_em: now, atualizado_em: now };
+  });
+}
+function download(name, text, type){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function openIO(){
+  const nome = isOwnSpace() ? "sua agenda" : `a agenda de ${spaceName()}`;
+  const slug = semAcento(spaceName()).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const ov = overlay(`<div class="mhead"><div class="mt">⇅ Exportar / importar agenda</div><button class="x" data-close>×</button></div>
+    <div class="mbody">
+      <div class="ioopt"><span class="ic">📤</span><div style="flex:1"><b>Exportar para Google Agenda / Outlook (.ics)</b><p>Gera um arquivo com ${esc(nome)} (${S.eventos.length} compromisso(s)). No Google Agenda: Configurações → Importar e exportar → Importar.</p>
+        <button class="btn sm" id="ioIcs">Baixar .ics</button></div></div>
+      <div class="ioopt"><span class="ic">💾</span><div style="flex:1"><b>Backup completo (.json)</b><p>Cópia exata, com conclusões e histórico, para guardar ou restaurar aqui no sistema.</p>
+        <button class="btn sm" id="ioJson">Baixar backup</button></div></div>
+      <div class="ioopt"><span class="ic">📥</span><div style="flex:1"><b>Importar (.ics ou .json)</b><p>Traga eventos exportados do Google Agenda, do Outlook ou um backup deste sistema para ${esc(nome)}.</p>
+        <input type="file" id="ioFile" accept=".ics,.json,text/calendar,application/json" class="fld">
+        <div id="ioPrev" style="margin-top:10px"></div></div></div>
+    </div>`, "mid");
+  $("#ioIcs").onclick = () => { download(`agenda-${slug}-${todayYmd()}.ics`, buildIcs(S.eventos), "text/calendar;charset=utf-8"); toast("Arquivo .ics baixado."); };
+  $("#ioJson").onclick = () => { download(`backup-agenda-${slug}-${todayYmd()}.json`, JSON.stringify({ tipo:"acompanhamento-adm/agenda", versao:1, exportado_em:new Date().toISOString(), eventos:S.eventos }, null, 2), "application/json"); toast("Backup baixado."); };
+  $("#ioFile").onchange = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    const prev = $("#ioPrev"); prev.innerHTML = "";
+    let rows = [];
+    try {
+      const txt = await file.text();
+      if (/\.json$/i.test(file.name) || txt.trim().startsWith("{") || txt.trim().startsWith("[")){
+        const j = JSON.parse(txt); const arr = Array.isArray(j) ? j : (j.eventos || []);
+        rows = arr.filter(x => x && x.titulo && x.data).map(x => ({ ...x }));
+      } else rows = parseIcs(txt);
+    } catch(ex){ prev.innerHTML = `<div class="err">Não consegui ler esse arquivo: ${esc(errMsg(ex))}</div>`; return; }
+    const key = x => `${x.titulo}|${x.data}|${hm(x.hora_inicio)||""}`;
+    const have = new Set(S.eventos.map(key));
+    const novos = rows.filter(x => !have.has(key(x)));
+    if (!rows.length){ prev.innerHTML = `<div class="err">Nenhum compromisso encontrado no arquivo.</div>`; return; }
+    prev.innerHTML = `<p style="margin:0 0 8px">Encontrei <b>${rows.length}</b> compromisso(s)${rows.length !== novos.length ? `, sendo <b>${rows.length - novos.length}</b> repetido(s) que já existem e serão ignorados` : ""}.</p>
+      ${novos.length ? `<button class="btn primary sm" id="ioGo">Importar ${novos.length} para ${esc(nome)}</button>` : ""}`;
+    const go = $("#ioGo");
+    if (go) go.onclick = async () => {
+      go.disabled = true; const now = Date.now();
+      for (const r of novos){
+        const COLS_EV = ["tipo","titulo","descricao","data","data_fim","hora_inicio","hora_fim","local","cor","recorrencia","recorrencia_ate","concluida","concluida_em","concluidas","historico","criado_em"];
+        const row = Object.fromEntries(COLS_EV.map(k => [k, r[k] ?? null]));
+        Object.assign(row, { id: uuid(), dono: S.space, criado_por: S.me.id, criado_em: r.criado_em || now, atualizado_em: now,
+          tipo: r.tipo === "missao" ? "missao" : "evento", descricao: r.descricao || "", local: r.local || "", recorrencia: REC[r.recorrencia] ? r.recorrencia : "nenhuma",
+          concluida: !!r.concluida, concluidas: r.concluidas || [], historico: [...(r.historico || []), actorTag({tipo:"criado", em:now, texto:`Importado de ${file.name}`})] });
+        ["hora_inicio","hora_fim"].forEach(k => { if (row[k]) row[k] = hm(row[k]); });
+        S.eventos.push(row); persist("eventos", row);
+      }
+      closeModal(true); renderAll(); toast(`${novos.length} compromisso(s) importado(s).`);
+    };
   };
 }

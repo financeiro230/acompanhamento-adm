@@ -16,7 +16,7 @@ function createDemanda({titulo, descricao="", prazo=null, prioridade="normal", s
   const now = Date.now();
   const it = { id: uuid(), dono, titulo: titulo.trim(), descricao: (descricao||"").trim(), status, prioridade,
     prazo: prazo || null, checklist: [], criado_em: now, atualizado_em: now, finalizado_em: null, criado_por: S.me.id,
-    historico: [actorTag({tipo:"criado", em:now, texto:`Cadastrada em "${LABEL[status]}"`})] };
+    historico: [actorTag({tipo:"criado", em:now, texto:`Cadastrada em "${colLabel(status)}"`})] };
   if (dono === S.space) S.demandas.push(it);
   renderAll();
   return persist("demandas", it);
@@ -34,9 +34,9 @@ function moveD(id, to){
   const from = cur.status;
   return updateD(id, it => {
     const now = Date.now();
-    if (to === FIN){ it.finalizado_em = now; it.historico.push(actorTag({tipo:"final", em:now, de:from, para:FIN, texto:`Finalizada (estava em "${LABEL[from]}")`})); }
-    else if (from === FIN){ it.finalizado_em = null; it.historico.push(actorTag({tipo:"status", em:now, de:FIN, para:to, texto:`Reaberta em "${LABEL[to]}"`})); }
-    else it.historico.push(actorTag({tipo:"status", em:now, de:from, para:to, texto:`${LABEL[from]} → ${LABEL[to]}`}));
+    if (to === FIN){ it.finalizado_em = now; it.historico.push(actorTag({tipo:"final", em:now, de:from, para:FIN, texto:`Finalizada (estava em "${colLabel(from)}")`})); }
+    else if (from === FIN){ it.finalizado_em = null; it.historico.push(actorTag({tipo:"status", em:now, de:FIN, para:to, texto:`Reaberta em "${colLabel(to)}"`})); }
+    else it.historico.push(actorTag({tipo:"status", em:now, de:from, para:to, texto:`${colLabel(from)} → ${colLabel(to)}`}));
     it.status = to;
   });
 }
@@ -69,7 +69,9 @@ function renderKanban(){
   const v = $("#v-kanban");
   const prioRank = p => p === "alta" ? 0 : 1;
   const colHtml = c => {
-    const list = S.demandas.filter(i => i.status === c.key && matchesSearch(i))
+    const known = new Set([...COLS.map(x => x.key), FIN]);
+    const first = (COLS.find(x => x.lado !== "lateral") || COLS[0]).key;
+    const list = S.demandas.filter(i => (i.status === c.key || (c.key === first && !known.has(i.status))) && matchesSearch(i))
       .sort((a,z) => prioRank(a.prioridade)-prioRank(z.prioridade) || (a.prazo||"9999").localeCompare(z.prazo||"9999") || a.criado_em-z.criado_em);
     const cards = list.map(cardHtml).join("") || `<div class="empty">Nada aqui.</div>`;
     const ph = c.key==="rascunhos" ? "Anote livremente… (Enter salva, Shift+Enter pula linha)" : c.key==="ideias" ? "Qual a ideia? (Enter para salvar)" : "Título da demanda… (Enter para salvar)";
@@ -81,11 +83,13 @@ function renderKanban(){
       <div class="colhead"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}<span class="count">${list.length}</span></div>
       <div class="cards">${cards}</div>${add}</section>`;
   };
-  const by = Object.fromEntries(COLS.map(c => [c.key, c]));
+  const lat = COLS.filter(c => c.lado === "lateral"), pri = COLS.filter(c => c.lado !== "lateral");
+  const ncols = pri.length + (lat.length ? 1 : 0);
   v.innerHTML = `<div class="kbar"><button class="btn primary" data-act="newD">＋ Nova demanda</button>
+      ${isAdmin() ? `<button class="btn" data-act="cols">⚙ Quadros</button>` : ""}
       <span class="note">Arraste os cartões entre os quadros · marque as caixinhas para ações em lote</span></div>
-    <div class="board"><div class="stack">${colHtml(by.ideias)}${colHtml(by.rascunhos)}${colHtml(by.standby)}</div>
-    ${COLS.filter(c => !["ideias","rascunhos","standby"].includes(c.key)).map(colHtml).join("")}</div>`;
+    <div class="board" style="grid-template-columns:repeat(${ncols},minmax(230px,1fr))">${lat.length ? `<div class="stack">${lat.map(colHtml).join("")}</div>` : ""}
+    ${pri.map(colHtml).join("")}</div>`;
   if (K.inlineAdd){ const t = $("#inl"); t && t.focus(); }
 }
 function cardHtml(it){
@@ -156,7 +160,7 @@ function renderBatch(){
     const to = e.target.value; if (!to) return;
     const list = [...S.selected]; S.selected.clear();
     for (const id of list) await moveD(id, to);
-    toast(`${list.length} movida(s) para "${LABEL[to]}".`); renderAll();
+    toast(`${list.length} movida(s) para "${colLabel(to)}".`); renderAll();
   };
   const tr = $("#bTransf");
   if (tr) tr.onchange = e => {
@@ -181,6 +185,7 @@ document.addEventListener("click", async e => {
     if (a==="inlcancel"){ K.inlineAdd = null; renderKanban(); return; }
     if (a==="inlsave"){ saveInline(); return; }
     if (a==="newD"){ openNewDemanda(); return; }
+    if (a==="cols"){ openColsEditor(); return; }
     if (a==="bclear"){ S.selected.clear(); renderAll(); return; }
     if (a==="bfin"){ const list=[...S.selected]; S.selected.clear(); for (const id of list) await moveD(id, FIN); toast(`${list.length} finalizada(s).`); renderAll(); return; }
     if (a==="bdel"){ const list=[...S.selected]; confirmBox(`Excluir ${list.length} demanda(s)?`, "Elas serão apagadas de vez, junto com o histórico.", "Excluir", async () => { for (const id of list) await deleteD(id); toast("Excluída(s)."); }); return; }
@@ -232,7 +237,7 @@ function openNewDemanda(pre = {}){
       <label class="f">Título</label><input class="fld" id="nT" required placeholder="Ex.: Inclusão de dependente na Unimed" value="${esc(pre.titulo||"")}">
       <div class="section"><label class="f">Descrição (opcional)</label><textarea class="fld" id="nD" placeholder="Detalhes, contato, número do pedido…"></textarea></div>
       <div class="grid3 section">
-        <div><label class="f">Quadro</label><select class="fld" id="nS">${COLS.map(c=>`<option value="${c.key}" ${c.key==="pendente"?"selected":""}>${esc(c.label)}</option>`).join("")}</select></div>
+        <div><label class="f">Quadro</label><select class="fld" id="nS">${COLS.map(c=>`<option value="${c.key}" ${c.key===firstMain()?"selected":""}>${esc(c.label)}</option>`).join("")}</select></div>
         <div><label class="f">Prazo</label><input class="fld" type="date" id="nP" value="${esc(pre.prazo||"")}"></div>
         <div><label class="f">Prioridade</label><select class="fld" id="nR"><option value="normal">Normal</option><option value="alta">Alta</option></select></div>
       </div>
@@ -306,7 +311,7 @@ function footHtml(it){
     <div class="spacer"></div>
     <button class="btn" data-close>Fechar</button>
     <button class="btn primary hidden" id="dSave">Salvar alterações</button>
-    ${it.status!==FIN?`<button class="btn ok" data-move="${FIN}">✓ Finalizar</button>`:`<button class="btn" data-move="pendente">↺ Reabrir</button>`}`;
+    ${it.status!==FIN?`<button class="btn ok" data-move="${FIN}">✓ Finalizar</button>`:`<button class="btn" data-move="${firstMain()}">↺ Reabrir</button>`}`;
 }
 function openDemanda(id){
   const it = getD(id); if (!it) return;
@@ -365,7 +370,7 @@ function openDemanda(id){
     if (m){ const to = m.dataset.move; if (!cur() || cur().status===to) return;
       moveD(K.openId, to);
       if (to===FIN){ toast("Demanda finalizada — está em Finalizadas."); closeModal(true); }
-      else { toast(`Movida para "${LABEL[to]}".`); refreshDemandaModal(); }
+      else { toast(`Movida para "${colLabel(to)}".`); refreshDemandaModal(); }
     }
   });
   ov.addEventListener("keydown", e => {
@@ -411,4 +416,52 @@ function refreshDemandaModal(){
     const sv = (s,v) => { const el = $(s); if (el && document.activeElement !== el) el.value = v; };
     sv("#dT", it.titulo); sv("#dD", it.descricao||""); sv("#dP", it.prazo||""); sv("#dR", it.prioridade||"normal");
   }
+}
+
+/* ---------- editor de quadros (admin) ---------- */
+function openColsEditor(){
+  let list = COLS.map(c => ({...c}));
+  const counts = {};
+  const draw = () => {
+    $("#colList").innerHTML = list.map((c, i) => `<div class="colrow" data-i="${i}">
+      <input type="color" value="${c.color}" data-cf="color" title="Cor do quadro">
+      <input class="fld" value="${esc(c.label)}" data-cf="label" placeholder="Nome do quadro">
+      <select class="fld" data-cf="lado"><option value="principal" ${c.lado!=="lateral"?"selected":""}>Área principal</option><option value="lateral" ${c.lado==="lateral"?"selected":""}>Coluna lateral</option></select>
+      <div class="acts"><button class="ckb" data-cm="-1" ${i===0?"disabled":""} title="Subir">↑</button><button class="ckb" data-cm="1" ${i===list.length-1?"disabled":""} title="Descer">↓</button>
+      <button class="ckb del" data-cdel title="Excluir quadro${counts[c.key]?` (tem ${counts[c.key]} demanda(s))`:""}">×</button></div></div>`).join("");
+  };
+  const ov = overlay(`<div class="mhead"><div class="mt">⚙ Quadros do kanban</div><button class="x" data-close>×</button></div>
+    <div class="mbody">
+      <p class="note" style="margin:0 0 10px">Os quadros valem para toda a equipe. Renomeie, mude a cor, a ordem e onde aparecem. "Coluna lateral" empilha o quadro na primeira coluna (como Ideias, Rascunhos e Stand by).</p>
+      <div id="colList"></div>
+      <button class="btn sm" id="colAdd" style="margin-top:10px">＋ Novo quadro</button>
+      <div class="err" id="colErr" style="margin-top:10px"></div>
+    </div>
+    <div class="mfoot"><span class="note">"Finalizado" é fixo e fica na aba Finalizadas.</span><div class="spacer"></div><button class="btn" data-close>Cancelar</button><button class="btn primary" id="colSave">Salvar quadros</button></div>`, "mid", { dirty: () => true });
+  draw();
+  API.rpc("contar_por_status").then(r => { (r||[]).forEach(x => counts[x.status] = +x.total); draw(); }).catch(() => {});
+  ov.addEventListener("input", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
+  ov.addEventListener("change", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
+  ov.addEventListener("click", e => {
+    const row = e.target.closest("[data-i]"); const i = row ? +row.dataset.i : -1;
+    const mv = e.target.closest("[data-cm]");
+    if (mv){ const j = i + (+mv.dataset.cm); if (j < 0 || j >= list.length) return; [list[i], list[j]] = [list[j], list[i]]; draw(); return; }
+    if (e.target.closest("[data-cdel]")){
+      const c = list[i], n = counts[c.key] || 0;
+      if (n){ $("#colErr").textContent = `"${c.label}" tem ${n} demanda(s) (somando toda a equipe). Mova essas demandas para outro quadro antes de excluir.`; return; }
+      if (list.length <= 1){ $("#colErr").textContent = "Precisa existir pelo menos um quadro."; return; }
+      list.splice(i, 1); draw(); return;
+    }
+  });
+  $("#colAdd").onclick = () => { list.push({ key: "q_" + Math.random().toString(36).slice(2, 8), label: "Novo quadro", color: CORES[list.length % CORES.length], lado: "principal" }); draw();
+    const ins = $$("#colList [data-cf=label]"); const last = ins[ins.length-1]; last.focus(); last.select(); };
+  $("#colSave").onclick = async () => {
+    const err = $("#colErr"); err.textContent = "";
+    list.forEach(c => c.label = (c.label||"").trim());
+    if (list.some(c => !c.label)){ err.textContent = "Todo quadro precisa de um nome."; return; }
+    if (!list.some(c => c.lado !== "lateral")){ err.textContent = "Deixe pelo menos um quadro na área principal."; return; }
+    $("#colSave").disabled = true;
+    try { await API.setConfig("colunas", list); setCols(list); closeModal(true); renderAll(); toast("Quadros atualizados para toda a equipe."); }
+    catch(ex){ err.textContent = errMsg(ex); $("#colSave").disabled = false; }
+  };
 }
