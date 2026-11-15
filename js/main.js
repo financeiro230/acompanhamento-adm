@@ -65,7 +65,7 @@ async function startApp(uid){
   if (!me){ await API.logout(); showLogin("Seu usuário não tem perfil cadastrado. Fale com o administrador."); return; }
   if (!me.ativo){ await API.logout(); showLogin("Este usuário está desativado."); return; }
   S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
-  applyTheme(prefs());
+  applyTheme(prefs()); gRestore();
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
   let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); if (s && S.perfis.find(p => p.id === s)) sp = s; } catch {}
   S.space = sp;
@@ -95,7 +95,7 @@ function showLogin(msg){
 async function logout(){
   closeModal(true); clearTimeout(idleT); idleT = null;
   await API.logout();
-  S.me = null; S.demandas = []; S.eventos = []; S.all = null; S.perfis = [];
+  gClear(); S.me = null; S.demandas = []; S.eventos = []; S.all = null; S.perfis = [];
   try { sessionStorage.removeItem("cu_space"); } catch {}
   showLogin();
 }
@@ -135,6 +135,7 @@ function openAparencia(){
         <div class="colorline"><input type="color" id="apEv" value="${p.corEvento}"> Eventos</div>
         <div class="colorline"><input type="color" id="apMi" value="${p.corMissao}"> Missões</div>
         <div class="colorline"><input type="color" id="apPr" value="${p.corPrazo}"> Prazos do kanban</div>
+        <div class="colorline"><input type="color" id="apGo" value="${p.corGoogle||"#4285f4"}"> Eventos do Google Agenda</div>
         <p class="note" style="margin:4px 0 0">Compromissos com "cor padrão" mudam junto quando você troca aqui. Os que têm cor própria continuam com a cor escolhida.</p></div>
       <div class="section"><label class="chk"><input type="checkbox" id="apSide" ${p.sidebar!==false?"checked":""}> Mostrar o menu lateral da agenda</label></div>
       <p class="note" style="margin-top:14px">Suas preferências ficam salvas na sua conta e valem em qualquer computador.</p>
@@ -147,7 +148,7 @@ function openAparencia(){
     const a = e.target.closest("[data-ac]"); if (a){ p.cor = a.dataset.ac; $$("#apAc .sw").forEach(x => x.classList.toggle("on", x === a)); live(); }
   });
   $("#apAcPick").oninput = e => { p.cor = e.target.value; $$("#apAc .sw").forEach(x => x.classList.toggle("on", x === e.target.parentElement)); live(); };
-  [["#apEv","corEvento"],["#apMi","corMissao"],["#apPr","corPrazo"]].forEach(([sel,k]) => $(sel).oninput = e => { p[k] = e.target.value; live(); });
+  [["#apEv","corEvento"],["#apMi","corMissao"],["#apPr","corPrazo"],["#apGo","corGoogle"]].forEach(([sel,k]) => $(sel).oninput = e => { p[k] = e.target.value; live(); });
   $("#apSide").onchange = e => { p.sidebar = e.target.checked; };
   $("#apReset").onclick = () => { Object.assign(p, PREF_DEF); closeModal(true); saved = true; savePrefs({...p}); renderAll(); toast("Aparência restaurada."); };
   $("#apCancel").onclick = () => closeModal(true);

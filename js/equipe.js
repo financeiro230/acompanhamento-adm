@@ -23,7 +23,7 @@ async function renderEquipe(){
   const v = $("#v-equipe");
   if (!isAdmin()){ v.innerHTML = ""; return; }
   if (!S.all){ v.innerHTML = `<div class="empty" style="padding:40px"><div class="spinner" style="margin:auto"></div></div>`; try { await loadAll(); } catch(e){ v.innerHTML = `<div class="empty">Erro ao carregar: ${esc(errMsg(e))}</div>`; return; } }
-  const filt = A.filt; A.filt = { evento:true, missao:true, prazo:false };
+  const filt = A.filt; A.filt = { evento:true, missao:true, prazo:false, google:false };
   const cards = S.perfis.map(p => {
     const s = statsFor(p.id);
     return `<div class="member ${p.ativo?"":"off"}">

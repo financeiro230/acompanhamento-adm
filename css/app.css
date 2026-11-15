@@ -410,3 +410,4 @@ body[data-t=vidro] .loginbox{background:rgba(255,255,255,.1)}
 .ioopt .ic{font-size:22px}
 .ioopt b{display:block;margin-bottom:2px}
 .ioopt p{margin:0 0 8px;color:var(--muted);font-size:13px}
+a.btn{text-decoration:none;color:inherit} a.btn.primary{color:#fff}

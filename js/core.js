@@ -92,7 +92,7 @@ const API = window.API_MOCK || {
 };
 
 /* ---------- preferências e tema ---------- */
-const PREF_DEF = { tema:"claro", cor:"#2f5bea", sidebar:true, corEvento:"#2f5bea", corMissao:"#1f9d61", corPrazo:"#d98a00" };
+const PREF_DEF = { tema:"claro", cor:"#2f5bea", sidebar:true, corEvento:"#2f5bea", corMissao:"#1f9d61", corPrazo:"#d98a00", corGoogle:"#4285f4" };
 const prefs = () => Object.assign({}, PREF_DEF, (S.me && S.me.preferencias) || {});
 function applyTheme(p){
   p = Object.assign({}, PREF_DEF, p || {});

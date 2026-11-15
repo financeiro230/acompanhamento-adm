@@ -1,7 +1,7 @@
 /* ===================== AGENDA ===================== */
 "use strict";
 
-const A = { mode: (window.innerWidth < 700 ? "dia" : "semana"), cursor: new Date(), filt: { evento:true, missao:true, prazo:true }, scrollKey: null };
+const A = { mode: (window.innerWidth < 700 ? "dia" : "semana"), cursor: new Date(), filt: { evento:true, missao:true, prazo:true, google:true }, scrollKey: null };
 const WD = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 const REC = { nenhuma:"Não repete", diaria:"Todo dia", dias_uteis:"Dias úteis (seg a sex)", semanal:"Toda semana", mensal:"Todo mês", anual:"Todo ano" };
 const getE = id => S.eventos.find(e => e.id === id);
@@ -64,6 +64,7 @@ function instances(from, to){
         title:d.titulo, color:defColor("prazo"), done:false, late: d.prazo < today });
     }
   }
+  out.push(...gInstances(from, to));
   return out.sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
 }
 function lateList(){
@@ -124,6 +125,7 @@ function renderAgenda(){
     if (A.scrollKey !== key){ A.scrollKey = key; A.lastScroll = H7; }
     body.scrollTop = A.lastScroll ?? H7;
   }
+  gEnsure();
   body.onscroll = () => { if (A.mode === "semana" || A.mode === "dia") A.lastScroll = body.scrollTop; };
 }
 function weekStart(d){ return addDays(new Date(d.getFullYear(), d.getMonth(), d.getDate()), -d.getDay()); }
@@ -167,13 +169,16 @@ function renderSide(){
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
       <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban</label>
+      ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
+    ${gSideHtml()}
     <p class="note">Dica: clique num horário vazio para criar um compromisso ali.</p>`;
 }
 
 function chipHtml(i){
   const tip = `${i.title}${i.allDay ? "" : " · " + minToHm(i.start)}`;
   const cls = ["chip", i.done ? "done" : "", i.late ? "late" : ""];
+  if (i.kind === "google") return `<button class="chip ${i.done?"done":""} ${i.allDay?"solid":""}" data-inst="${i.key}" style="${i.allDay?`background:${i.color}`:"color:var(--ink)"};${i.pend?`outline:1.5px dashed ${i.color};outline-offset:-1.5px;`:""}" title="Google Agenda: ${esc(tip)}${i.pend?" (convite sem resposta)":""}">${i.allDay?"":`<span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span>`}<span class="t">${i.pend?"✉ ":""}${esc(i.title)}</span></button>`;
   if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo do kanban: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
   if (i.kind === "limite") return `<button class="chip ${i.late?"late":""}" data-inst="${i.key}" style="color:${i.color};background:${i.color}1f;border:1px dashed ${i.color}" title="Prazo final da missão: ${esc(i.title)}"><span class="t">⏰ Prazo: ${esc(i.title)}</span></button>`;
   if (i.kind === "missao"){
@@ -235,8 +240,8 @@ function weekHtml(nDays){
       const top = e.start / 60 * H, hgt = Math.max((e.end - e.start) / 60 * H - 2, 18);
       const w = 100 / e.ncol, left = e.col * w;
       const bg = e.kind === "missao" ? e.color : e.color;
-      return `<div class="ev ${e.done?"done":""}" data-inst="${e.key}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);background:${bg};${e.late?"box-shadow:inset 3px 0 0 #fff,0 0 0 2px var(--danger);":""}">
-        <b>${e.kind==="missao"?`<span class="bx" data-done="${e.key}" style="display:inline-flex;width:11px;height:11px;border:1.5px solid #fff;border-radius:3px;margin-right:4px;vertical-align:-1px;font-size:8px;align-items:center;justify-content:center">${e.done?"✓":""}</span>`:""}${e.rec?"↻ ":""}${esc(e.title)}</b>
+      return `<div class="ev ${e.done?"done":""}" data-inst="${e.key}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);background:${bg};${e.late?"box-shadow:inset 3px 0 0 #fff,0 0 0 2px var(--danger);":""}${e.pend?"border:2px dashed #fff;opacity:.85;":""}">
+        <b>${e.kind==="google"?(e.pend?"✉ ":"G · "):""}${e.kind==="missao"?`<span class="bx" data-done="${e.key}" style="display:inline-flex;width:11px;height:11px;border:1.5px solid #fff;border-radius:3px;margin-right:4px;vertical-align:-1px;font-size:8px;align-items:center;justify-content:center">${e.done?"✓":""}</span>`:""}${e.rec?"↻ ":""}${esc(e.title)}</b>
         <span>${minToHm(e.start)}${e.end?" – "+minToHm(Math.min(e.end,1439)):""}${e.local?" · "+esc(e.local):""}</span></div>`;
     }).join("");
     const nl = k === today ? `<div class="nowline" style="top:${nowMin/60*H}px"></div>` : "";
@@ -252,9 +257,9 @@ function listHtml(){
   const by = {}; inst.forEach(i => (by[i.date] = by[i.date] || []).push(i));
   const row = i => {
     const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
-    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
+    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
-      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="limite"?"⏰":"📅"}</span>`}
+      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;
   };
   let h = "";
@@ -280,7 +285,7 @@ document.addEventListener("click", e => {
   const dn = t.closest("[data-done]");
   if (dn){ e.stopPropagation(); const [, id, date] = dn.dataset.done.split("|"); toggleDone(id, date); return; }
   const inst = t.closest("[data-inst]");
-  if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "d") openDemandaFromAgenda(id); else openEvento(id, null, date); return; }
+  if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else openEvento(id, null, date); return; }
   const go = t.closest("[data-goto]");
   if (go){ A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
   const md = t.closest("[data-mode]"); if (md){ A.mode = md.dataset.mode; renderAgenda(); return; }
