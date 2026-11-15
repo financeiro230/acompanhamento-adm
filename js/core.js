@@ -1,0 +1,181 @@
+/* ===================== ACOMPANHAMENTO ADM — núcleo ===================== */
+"use strict";
+
+const CFG = {
+  url: "https://upvkaawddhvicoupdtpd.supabase.co",
+  key: "sb_publishable_By5ZPecg5qpMN2_r3fVXTw_LW_Ukror",
+  dominio: "@usuarios.central-unigames.com",
+  idleMin: 30,
+};
+
+const COLS = [
+  {key:"ideias",    label:"💡 Ideias & Insights",     color:"#e0a800"},
+  {key:"rascunhos", label:"📝 Rascunhos",             color:"#8a94a6"},
+  {key:"standby",   label:"💤 Stand by",              color:"#5b6b8c"},
+  {key:"pendente",  label:"Iniciar / Pendente",       color:"#8a94a6"},
+  {key:"andamento", label:"Em andamento",             color:"#2f5bea"},
+  {key:"terceiros", label:"Dependendo de terceiros",  color:"#d98a00"},
+  {key:"douglas",   label:"Passar pro Douglas",       color:"#8a3ffc"},
+];
+const FIN = "finalizado";
+const LABEL = Object.fromEntries(COLS.map(c => [c.key, c.label])); LABEL[FIN] = "Finalizado";
+const CORES = ["#2f5bea","#1f9d61","#d23b3b","#d98a00","#8a3ffc","#0891b2","#db2777","#5b6b8c","#65a30d","#ea580c"];
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==="x"?r:(r&3|8)).toString(16); }));
+const clone = o => JSON.parse(JSON.stringify(o));
+const dayMs = 86400000;
+const pad = n => String(n).padStart(2, "0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseYmd = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const todayYmd = () => ymd(new Date());
+const fmt = ts => ts ? new Date(ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
+const fmtD = ts => ts ? new Date(ts).toLocaleDateString("pt-BR") : "—";
+const fmtYmd = (s, opt={day:"2-digit",month:"2-digit"}) => s ? parseYmd(s).toLocaleDateString("pt-BR", opt) : "";
+const hm = t => t ? t.slice(0,5) : "";
+function ago(ts){ const d = Math.floor((Date.now()-ts)/dayMs); if (d<=0) return "hoje"; if (d===1) return "ontem"; return `há ${d} dias`; }
+function dur(a,b){ const ms=b-a, d=Math.floor(ms/dayMs); if (d>=1) return d===1?"1 dia":`${d} dias`; const h=Math.floor(ms/3600000); return h>=1?`${h} h`:"menos de 1 h"; }
+const initials = n => (n||"?").trim().split(/\s+/).slice(0,2).map(p=>p[0]).join("").toUpperCase();
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+const semAcento = s => s.normalize("NFD").replace(/[̀-ͯ]/g,"");
+
+function toast(msg, bad){
+  const t = $("#toast"); t.textContent = msg; t.classList.toggle("bad", !!bad); t.classList.remove("hidden");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add("hidden"), bad ? 4500 : 2400);
+}
+function errMsg(e){
+  const m = (e && (e.message || e.error_description || e.msg)) || String(e);
+  if (/Invalid login credentials/i.test(m)) return "Usuário ou senha incorretos.";
+  if (/banned/i.test(m)) return "Este usuário está desativado. Fale com o administrador.";
+  if (/Failed to fetch|NetworkError/i.test(m)) return "Sem conexão com o servidor. Verifique a internet.";
+  if (/JWT|session|refresh token/i.test(m)) return "Sua sessão expirou. Entre novamente.";
+  return m;
+}
+
+/* ---------- API (Supabase) ---------- */
+let sb = null;
+const API = window.API_MOCK || {
+  init(){
+    sb = window.supabase.createClient(CFG.url, CFG.key, {
+      auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true }
+    });
+  },
+  async sessionUserId(){ const { data } = await sb.auth.getSession(); return data.session ? data.session.user.id : null; },
+  async login(usuario, senha){
+    const { data, error } = await sb.auth.signInWithPassword({ email: usuario.trim().toLowerCase() + CFG.dominio, password: senha });
+    if (error) throw error; return data.user.id;
+  },
+  async logout(){ try { await sb.auth.signOut(); } catch {} },
+  async changeMyPassword(senha){ const { error } = await sb.auth.updateUser({ password: senha }); if (error) throw error; },
+  async list(table, dono){
+    let q = sb.from(table).select("*");
+    if (dono) q = q.eq("dono", dono);
+    const { data, error } = await q; if (error) throw error; return data || [];
+  },
+  async save(table, row){ const { error } = await sb.from(table).upsert(row); if (error) throw error; },
+  async del(table, id){ const { error } = await sb.from(table).delete().eq("id", id); if (error) throw error; },
+  async rpc(fn, args){ const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
+};
+
+/* ---------- estado ---------- */
+const S = {
+  me: null,          // perfil logado
+  perfis: [],        // perfis visíveis (admin: todos)
+  space: null,       // id do dono que está sendo visto
+  demandas: [],
+  eventos: [],
+  all: null,         // {demandas, eventos} para visão de equipe (admin)
+  view: "agenda",
+  selected: new Set(),
+};
+const isAdmin = () => S.me && S.me.papel === "admin";
+const perfil = id => S.perfis.find(p => p.id === id);
+const spaceName = () => { const p = perfil(S.space); return p ? p.nome : ""; };
+const isOwnSpace = () => S.me && S.space === S.me.id;
+
+/* ---------- gravação serializada por registro ---------- */
+const queues = {};
+let savingN = 0;
+function setSaving(){
+  const el = $("#saving");
+  if (savingN > 0) el.textContent = "Salvando…";
+  else { el.textContent = "Salvo ✓"; clearTimeout(setSaving._t); setSaving._t = setTimeout(() => { if (el.textContent === "Salvo ✓") el.textContent = ""; }, 1500); }
+}
+function persist(table, row){
+  const body = clone(row);
+  savingN++; setSaving();
+  const run = () => API.save(table, body);
+  const p = (queues[row.id] = (queues[row.id] || Promise.resolve()).then(run, run));
+  return p.then(() => { savingN--; setSaving(); }, e => {
+    savingN--; setSaving(); console.error(e); toast("Não foi possível salvar: " + errMsg(e), true);
+    reloadSpace();
+  });
+}
+async function remove(table, id){
+  savingN++; setSaving();
+  try { await API.del(table, id); } catch(e){ console.error(e); toast("Não foi possível excluir: " + errMsg(e), true); reloadSpace(); }
+  finally { savingN--; setSaving(); }
+}
+function actorTag(entry){
+  if (S.me && S.space && S.me.id !== S.space) entry.por = S.me.nome;
+  return entry;
+}
+
+/* ---------- modais ---------- */
+let modalOnClose = null, modalDirty = () => false;
+function overlay(html, cls = "", opts = {}){
+  $("#modalRoot").innerHTML = `<div class="overlay" id="ov"><div class="modal ${cls}">${html}</div></div>`;
+  modalOnClose = opts.onClose || null;
+  modalDirty = opts.dirty || (() => false);
+  $("#ov").addEventListener("mousedown", e => { if (e.target.id === "ov") closeModal(); });
+  $$("#ov [data-close]").forEach(b => b.addEventListener("click", () => closeModal()));
+  return $("#ov");
+}
+function closeModal(force){
+  if (!$("#modalRoot").innerHTML) return;
+  if (!force && modalDirty()){
+    confirmBox("Descartar alterações?", "Você editou campos e não salvou.", "Descartar", () => closeModal(true));
+    return;
+  }
+  $("#modalRoot").innerHTML = "";
+  const cb = modalOnClose; modalOnClose = null; modalDirty = () => false;
+  if (cb) cb();
+}
+const modalOpen = () => !!$("#modalRoot").innerHTML;
+function confirmBox(title, text, okLabel, onOk, okClass = "danger"){
+  const host = document.createElement("div");
+  host.innerHTML = `<div class="overlay" style="z-index:60"><div class="modal small">
+    <div class="mhead"><div class="mt">${esc(title)}</div></div>
+    <div class="mbody" style="color:var(--muted)">${esc(text)}</div>
+    <div class="mfoot" style="justify-content:flex-end"><button class="btn" data-no>Cancelar</button>
+    <button class="btn primary" data-ok ${okClass==="danger"?'style="background:var(--danger);border-color:var(--danger)"':""}>${esc(okLabel)}</button></div>
+  </div></div>`;
+  document.body.appendChild(host);
+  host.querySelector("[data-no]").onclick = () => host.remove();
+  host.querySelector("[data-ok]").onclick = async () => { host.remove(); await onOk(); };
+  host.querySelector(".overlay").addEventListener("mousedown", e => { if (e.target.classList.contains("overlay")) host.remove(); });
+}
+function swatchesHtml(sel, name = "cor"){
+  return `<div class="swatches" data-swname="${name}">${CORES.map(c => `<span class="sw ${c===sel?"on":""}" data-sw="${c}" style="background:${c}"></span>`).join("")}</div>`;
+}
+document.addEventListener("click", e => {
+  const sw = e.target.closest("[data-sw]"); if (!sw) return;
+  const box = sw.parentElement; box.querySelectorAll(".sw").forEach(x => x.classList.toggle("on", x === sw));
+  box.dataset.value = sw.dataset.sw;
+});
+const swValue = (root, name = "cor") => { const b = root.querySelector(`[data-swname="${name}"]`); if (!b) return null; const on = b.querySelector(".sw.on"); return on ? on.dataset.sw : null; };
+
+/* ---------- prazo tag ---------- */
+function prazoTag(p, status){
+  if (!p || status === FIN) return "";
+  const end = parseYmd(p).getTime() + dayMs - 1;
+  const diff = Math.ceil((end - Date.now()) / dayMs);
+  const txt = "Prazo " + fmtYmd(p);
+  if (end < Date.now()) return `<span class="tag late">⚠ ${txt}</span>`;
+  if (diff <= 2) return `<span class="tag soon">${txt}</span>`;
+  return `<span class="tag">${txt}</span>`;
+}

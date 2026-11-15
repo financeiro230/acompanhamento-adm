@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acompanhamento ADM</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="login" class="hidden">
+  <form class="loginbox" id="loginForm" autocomplete="on">
+    <div class="logo">📋</div>
+    <h1>Acompanhamento ADM</h1>
+    <p>Agenda e Kanban da equipe</p>
+    <input id="lgUser" placeholder="Usuário" autocomplete="username" autocapitalize="none" spellcheck="false">
+    <input id="lgPass" type="password" placeholder="Senha" autocomplete="current-password">
+    <div class="err" id="lgErr"></div>
+    <button class="btn primary big" id="lgBtn">Entrar</button>
+    <small>Esqueceu a senha? Fale com o administrador.</small>
+  </form>
+</div>
+
+<div id="boot"><div class="spinner"></div></div>
+
+<!-- ================= APP ================= -->
+<div id="app" class="hidden">
+  <header>
+    <div class="brand">📋 <span>Acompanhamento ADM</span></div>
+    <nav class="tabs" id="tabs">
+      <button class="tab" data-view="agenda">📅 <span>Agenda</span></button>
+      <button class="tab" data-view="kanban">📋 <span>Kanban</span></button>
+      <button class="tab" data-view="finalizadas">✅ <span>Finalizadas</span> <b class="count" id="finCount">0</b></button>
+      <button class="tab admin-only" data-view="equipe">👥 <span>Equipe</span></button>
+    </nav>
+    <div class="spacer"></div>
+    <input class="search" id="search" placeholder="Buscar…">
+    <select id="spaceSel" class="spacesel admin-only" title="Espaço que você está vendo"></select>
+    <span class="saving" id="saving"></span>
+    <button class="avatar" id="meBtn" title="Minha conta"></button>
+  </header>
+  <div id="spaceBanner" class="banner hidden"></div>
+
+  <main>
+    <section id="v-agenda" class="view"></section>
+    <section id="v-kanban" class="view"></section>
+    <section id="v-finalizadas" class="view"></section>
+    <section id="v-equipe" class="view"></section>
+  </main>
+</div>
+
+<div id="batch" class="hidden"></div>
+<div id="modalRoot"></div>
+<div id="toast" class="hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/core.js"></script>
+<script src="js/kanban.js"></script>
+<script src="js/agenda.js"></script>
+<script src="js/equipe.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
