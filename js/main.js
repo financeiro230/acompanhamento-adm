@@ -3,10 +3,12 @@
 
 function renderAll(){
   $("#finCount").textContent = S.demandas.filter(d => d.status === FIN).length;
-  $("#search").classList.toggle("hidden", !["kanban","finalizadas"].includes(S.view));
+  $("#search").classList.toggle("hidden", !["kanban","finalizadas","parados"].includes(S.view));
+  $("#stCount").textContent = staleList(S.demandas, ST.min, ST.extras).length;
   if (S.view === "agenda") renderAgenda();
   else if (S.view === "kanban") renderKanban();
   else if (S.view === "finalizadas") renderFinalizadas();
+  else if (S.view === "parados") renderParados();
   else if (S.view === "equipe") renderEquipe();
   renderBatch();
   if (K.openId && modalOpen()) refreshDemandaModal();
@@ -47,8 +49,11 @@ async function reloadSpace(showSpin){
   if (reloading) return; reloading = true;
   try {
     if (showSpin) $("#saving").textContent = "Carregando…";
-    const [d, e, cols] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null)]);
+    if (S.view === "parados" && ST.scope === "team") S.all = null;
+    const [d, e, cols, atr] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null),
+      canAssign() ? API.listBy("eventos", "criado_por", S.me.id).catch(() => []) : Promise.resolve([])]);
     S.demandas = d; S.eventos = e; if (cols) setCols(cols);
+    S.atribuidas = atr.filter(x => x.dono !== S.me.id);
     if (showSpin) $("#saving").textContent = "";
     if (!modalOpen() || K.openId) renderAll();
   } catch(err){
@@ -66,13 +71,14 @@ async function startApp(uid){
   if (!me.ativo){ await API.logout(); showLogin("Este usuário está desativado."); return; }
   S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
   applyTheme(prefs()); gRestore();
+  if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
   let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); if (s && S.perfis.find(p => p.id === s)) sp = s; } catch {}
   S.space = sp;
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
   const h = location.hash.slice(1);
-  setView(["agenda","kanban","finalizadas","equipe"].includes(h) ? h : "agenda");
+  setView(["agenda","kanban","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
   await reloadSpace(true);
   resetIdle();
 }
@@ -173,7 +179,7 @@ $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view
 $("#spaceSel").addEventListener("change", e => setSpace(e.target.value));
 $("#search").addEventListener("input", () => renderAll());
 document.addEventListener("keydown", e => { if (e.key === "Escape" && modalOpen()) closeModal(); });
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","finalizadas","equipe"].includes(h)) setView(h); });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","parados","finalizadas","equipe"].includes(h)) setView(h); });
 
 /* ---------- inatividade e atualização ---------- */
 let idleT = null;

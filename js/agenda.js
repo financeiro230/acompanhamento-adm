@@ -4,7 +4,7 @@
 const A = { mode: (window.innerWidth < 700 ? "dia" : "semana"), cursor: new Date(), filt: { evento:true, missao:true, prazo:true, google:true }, scrollKey: null };
 const WD = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 const REC = { nenhuma:"Não repete", diaria:"Todo dia", dias_uteis:"Dias úteis (seg a sex)", semanal:"Toda semana", mensal:"Todo mês", anual:"Todo ano" };
-const getE = id => S.eventos.find(e => e.id === id);
+const getE = id => S.eventos.find(e => e.id === id) || (S.atribuidas || []).find(e => e.id === id);
 const toMin = t => { if (!t) return null; const [h,m] = t.split(":").map(Number); return h*60+m; };
 const minToHm = m => `${pad(Math.floor(m/60))}:${pad(m%60)}`;
 const defColor = tipo => tipo === "missao" ? prefs().corMissao : tipo === "prazo" ? prefs().corPrazo : prefs().corEvento;
@@ -64,6 +64,16 @@ function instances(from, to){
         title:d.titulo, color:defColor("prazo"), done:false, late: d.prazo < today });
     }
   }
+  if (A.filt.prazo){
+    for (const d of S.demandas){
+      if (d.status === FIN) continue;
+      for (const c of (d.checklist || [])){
+        if (c.feito || !c.prazo || c.prazo < from || c.prazo > to) continue;
+        out.push({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, start:null, end:null,
+          title:c.texto, sub:d.titulo, color:defColor("prazo"), done:false, late: c.prazo < today });
+      }
+    }
+  }
   out.push(...gInstances(from, to));
   return out.sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
 }
@@ -73,7 +83,9 @@ function lateList(){
   const late = instances(from, today).filter(i => i.late && i.kind !== "prazo" && i.kind !== "limite" && !(i.prazo && seen.has(i.id)) && (seen.add(i.id), true));
   const prazos = S.demandas.filter(d => d.prazo && d.status !== FIN && d.prazo < today)
     .map(d => ({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, title:d.titulo, color:defColor("prazo"), late:true }));
-  return [...late, ...(A.filt.prazo ? prazos : [])].sort((a,b) => a.date.localeCompare(b.date));
+  const passos = A.filt.prazo ? S.demandas.filter(d => d.status !== FIN).flatMap(d => (d.checklist||[]).filter(c => !c.feito && c.prazo && c.prazo < today)
+    .map(c => ({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, title:c.texto, sub:d.titulo, color:defColor("prazo"), late:true }))) : [];
+  return [...late, ...(A.filt.prazo ? prazos : []), ...passos].sort((a,b) => a.date.localeCompare(b.date));
 }
 
 /* ---------- ações ---------- */
@@ -165,10 +177,12 @@ function renderSide(){
       <button class="sum today" data-ag="gotoday"><span>📍 Hoje</span><b>${hoje}</b></button>
       <button class="sum" data-ag="golist"><span>🗓 Próximos 7 dias</span><b>${sem}</b></button>
     </div>
+    ${canAssign() ? (() => { const ab = S.atribuidas.filter(e => !(e.recorrencia === "nenhuma" ? e.concluida : false)).length;
+      return `<div class="sumbox"><h4>Equipe</h4><button class="sum" data-ag="atrib"><span>📤 Atribuídas por mim</span><b>${ab}</b></button></div>`; })() : ""}
     <div class="filt"><h4>Mostrar</h4>
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
-      <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban</label>
+      <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban e passos</label>
       ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
     ${gSideHtml()}
@@ -179,6 +193,7 @@ function chipHtml(i){
   const tip = `${i.title}${i.allDay ? "" : " · " + minToHm(i.start)}`;
   const cls = ["chip", i.done ? "done" : "", i.late ? "late" : ""];
   if (i.kind === "google") return `<button class="chip ${i.done?"done":""} ${i.allDay?"solid":""}" data-inst="${i.key}" style="${i.allDay?`background:${i.color}`:"color:var(--ink)"};${i.pend?`outline:1.5px dashed ${i.color};outline-offset:-1.5px;`:""}" title="Google Agenda: ${esc(tip)}${i.pend?" (convite sem resposta)":""}">${i.allDay?"":`<span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span>`}<span class="t">${i.pend?"✉ ":""}${esc(i.title)}</span></button>`;
+  if (i.kind === "passo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Passo do checklist: ${esc(i.title)} — ${esc(i.sub)}"><span class="t">☑ ${esc(i.title)}</span></button>`;
   if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo do kanban: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
   if (i.kind === "limite") return `<button class="chip ${i.late?"late":""}" data-inst="${i.key}" style="color:${i.color};background:${i.color}1f;border:1px dashed ${i.color}" title="Prazo final da missão: ${esc(i.title)}"><span class="t">⏰ Prazo: ${esc(i.title)}</span></button>`;
   if (i.kind === "missao"){
@@ -256,10 +271,10 @@ function listHtml(){
   const inst = instances(today, end);
   const by = {}; inst.forEach(i => (by[i.date] = by[i.date] || []).push(i));
   const row = i => {
-    const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
-    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
+    const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" || i.kind==="passo" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
+    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
-      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
+      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;
   };
   let h = "";
@@ -295,6 +310,7 @@ document.addEventListener("click", e => {
     if (a === "new") openEvento(null, { data: A.mode === "lista" ? todayYmd() : ymd(A.cursor) });
     if (a === "side"){ const p = prefs(); p.sidebar = p.sidebar === false; savePrefs(p); $("#agSide").classList.toggle("closed", p.sidebar === false); return; }
     if (a === "io"){ openIO(); return; }
+    if (a === "atrib"){ openAtribuidas(); return; }
     if (a === "today") A.cursor = new Date();
     if (a === "prev" || a === "next"){ const s = a === "prev" ? -1 : 1;
       if (A.mode === "mes") A.cursor = new Date(c.getFullYear(), c.getMonth()+s, 1);
@@ -325,7 +341,8 @@ function openDemandaFromAgenda(id){
 
 /* ---------- modal evento / missão ---------- */
 function whoHtml(sel){
-  return `<div class="section"><label class="f">Para quem</label><div class="who" id="evWho">${S.perfis.filter(p => p.ativo).map(p => `<label><input type="checkbox" value="${p.id}" ${p.id===sel?"checked":""}><span class="mini-av" style="background:${p.cor}">${esc(initials(p.nome))}</span>${esc(p.nome)}${p.id===S.me.id?" (eu)":""}</label>`).join("")}</div>
+  const lista = isAdmin() ? S.perfis.filter(p => p.ativo) : (S.equipe || []);
+  return `<div class="section"><label class="f">Para quem</label><div class="who" id="evWho">${lista.map(p => `<label><input type="checkbox" value="${p.id}" ${p.id===sel?"checked":""}><span class="mini-av" style="background:${p.cor}">${esc(initials(p.nome))}</span>${esc(p.nome)}${p.id===S.me.id?" (eu)":""}</label>`).join("")}</div>
     <p class="note" style="margin:6px 0 0">Marque várias pessoas para criar a mesma missão ou evento para cada uma. Cada pessoa conclui a sua.</p></div>`;
 }
 function openEvento(id, pre = {}, dateCtx = null){
@@ -349,6 +366,8 @@ function openEvento(id, pre = {}, dateCtx = null){
       <div><b>Situação ${rec ? "em " + fmtYmd(ctx) : ""}</b>${done ? "✅ Concluída" : (lim < todayYmd() ? "⚠ Atrasada" : "⏳ Em aberto")}${!rec && ev.data_fim ? ` · prazo final ${fmtYmd(ev.data_fim)}` : ""}</div>
       <button class="btn ${done?"":"ok"}" id="evDone">${done ? "↺ Reabrir" : "✓ Marcar como concluída"}</button></div>`;
   })() : "";
+  const quem = ev && ev.criado_por && ev.criado_por !== ev.dono ? ((ev.historico||[]).find(h => h.tipo === "criado" && h.por) || {}).por || (pessoa(ev.criado_por) || {}).nome : null;
+  const atribBox = ev && (quem || ev.dono !== S.me.id) ? `<p class="note" style="margin:-4px 0 12px">${quem ? `📤 Atribuída por <b>${esc(quem)}</b>` : ""}${ev.dono !== S.me.id && pessoa(ev.dono) ? `${quem ? " · " : ""}Para <b>${esc(pessoa(ev.dono).nome)}</b>` : ""}</p>` : "";
   const hist = ev && (ev.historico||[]).length ? `<div class="section"><h3>🕓 Histórico</h3><ul class="timeline">${[...ev.historico].sort((a,z)=>z.em-a.em).map(x => `<li class="${x.tipo}"><div class="tl-when">${fmt(x.em)}${x.por?" · por "+esc(x.por):""}</div><div class="tl-what">${esc(x.texto)}</div></li>`).join("")}</ul></div>` : "";
   const recLabel = (k, w) => k === "semanal" ? `Toda semana (${w.toLocaleDateString("pt-BR",{weekday:"long"})})` : k === "mensal" ? `Todo mês (dia ${w.getDate()})` : k === "anual" ? `Todo ano (${w.toLocaleDateString("pt-BR",{day:"numeric",month:"long"})})` : REC[k];
   const recOpts = (w, v) => Object.keys(REC).map(k => `<option value="${k}" ${v===k?"selected":""}>${esc(recLabel(k, w))}</option>`).join("");
@@ -362,7 +381,7 @@ function openEvento(id, pre = {}, dateCtx = null){
         <button type="button" data-tipo="missao" class="${d.tipo==="missao"?"on":""}">🎯 Missão</button>
       </div>
       <p class="note" id="evTipoHint" style="margin:-6px 0 12px">${hint(d.tipo)}</p>
-      ${statusBlock}
+      ${atribBox}${statusBlock}
       <input class="fld" id="evT" placeholder="${d.tipo==="missao"?"O que precisa ser feito?":"Título do evento"}" value="${esc(d.titulo)}" style="font-size:16px;font-weight:600">
       <div class="grid3 section">
         <div><label class="f" id="evDataLbl">${d.tipo==="missao"?"Fazer em":"Data"}</label><input class="fld" type="date" id="evD" value="${esc(d.data)}"></div>
@@ -383,7 +402,7 @@ function openEvento(id, pre = {}, dateCtx = null){
       <div class="section"><label class="f">Descrição / observações</label><textarea class="fld" id="evDesc">${esc(d.descricao||"")}</textarea></div>
       <div class="section"><label class="f">Cor</label><div id="evCorBox">${swatchesHtml(d.cor, "cor", defColor(d.tipo))}</div>
         <p class="note" style="margin:6px 0 0">A primeira opção (quadriculada) segue a cor padrão, que você muda em 🎨 Aparência. As outras deixam a cor fixa.</p></div>
-      ${isAdmin() ? (ev ? donoSelectHtml("evO", d.dono) : whoHtml(d.dono)) : ""}
+      ${ev ? (isAdmin() ? donoSelectHtml("evO", d.dono) : "") : (canAssign() ? whoHtml(d.dono) : "")}
       ${hist}
     </form>
     <div class="mfoot">${ev ? `<button class="btn danger" id="evDel">Excluir${rec?" (todas)":""}</button>` : ""}
@@ -422,7 +441,7 @@ function openEvento(id, pre = {}, dateCtx = null){
   if (!ev) setTimeout(() => $("#evT").focus(), 30);
   const done = $("#evDone"); if (done) done.onclick = () => { toggleDone(ev.id, ctx); closeModal(true); };
   const del = $("#evDel"); if (del) del.onclick = () => confirmBox(rec ? "Excluir todas as ocorrências?" : "Excluir este compromisso?", rec ? "O compromisso repetido some da agenda em todas as datas." : "Ele será apagado de vez.", "Excluir", async () => {
-    closeModal(true); S.eventos = S.eventos.filter(x => x.id !== ev.id); renderAll(); await remove("eventos", ev.id); toast("Excluído.");
+    closeModal(true); S.eventos = S.eventos.filter(x => x.id !== ev.id); S.atribuidas = S.atribuidas.filter(x => x.id !== ev.id); renderAll(); await remove("eventos", ev.id); toast("Excluído.");
   });
   $("#evSave").onclick = () => {
     const titulo = $("#evT").value.trim(); if (!titulo){ toast("Dê um título.", true); $("#evT").focus(); return; }
@@ -458,7 +477,9 @@ function openEvento(id, pre = {}, dateCtx = null){
       else if (row.dono === S.space) S.eventos.push(row);
     }
     dirty = false; closeModal(true); renderAll();
-    const nomes = donos.filter(x => x !== S.space).map(x => perfil(x)?.nome).filter(Boolean);
+    const nomes = donos.filter(x => x !== S.space).map(x => pessoa(x)?.nome).filter(Boolean);
+    for (const r of rows) if (r.dono !== S.me.id && r.criado_por === S.me.id){ const i = S.atribuidas.findIndex(x => x.id === r.id); if (i >= 0) S.atribuidas[i] = r; else S.atribuidas.push(r); }
+    if (rows.some(r => r.dono !== S.me.id)) renderAll();
     toast(ev ? "Alterações salvas." : donos.length > 1 ? `Criado para ${donos.length} pessoas.` : (nomes.length ? `Criado na agenda de ${nomes[0]}.` : (tipo==="missao" ? "Missão criada." : "Evento criado.")));
     rows.forEach(r => persist("eventos", r));
   };
@@ -596,4 +617,36 @@ function openIO(){
       closeModal(true); renderAll(); toast(`${novos.length} compromisso(s) importado(s).`);
     };
   };
+}
+
+/* ---------- atribuídas por mim ---------- */
+function openAtribuidas(){
+  const today = todayYmd();
+  const st = e => {
+    if (e.tipo !== "missao") return { t: "📅 Evento", c: "" };
+    if (e.recorrencia !== "nenhuma") return { t: `↻ Repete · ${(e.concluidas||[]).length} conclusão(ões)`, c: "" };
+    if (e.concluida) return { t: `✅ Concluída ${e.concluida_em ? "em " + fmtD(e.concluida_em) : ""}`, c: "okt" };
+    const lim = e.data_fim || e.data;
+    return lim < today ? { t: "⚠ Atrasada", c: "late" } : { t: "⏳ Em aberto", c: "blue" };
+  };
+  const draw = filtro => {
+    const list = S.atribuidas.filter(e => filtro === "todas" || (filtro === "abertas" ? !(e.tipo === "missao" && e.recorrencia === "nenhuma" && e.concluida) : (e.tipo === "missao" && e.recorrencia === "nenhuma" && e.concluida)))
+      .sort((a,b) => (a.data_fim||a.data).localeCompare(b.data_fim||b.data));
+    const by = {}; list.forEach(e => (by[e.dono] = by[e.dono] || []).push(e));
+    $("#atrList").innerHTML = Object.keys(by).length ? Object.entries(by).map(([dono, evs]) => { const p = pessoa(dono) || { nome: "?", cor: "#8a94a6" };
+      return `<div class="section"><h3><span class="mini-av" style="background:${p.cor};width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;display:inline-flex;align-items:center;justify-content:center">${esc(initials(p.nome))}</span>${esc(p.nome)} <span class="count">${evs.length}</span></h3>
+        ${evs.map(e => { const s2 = st(e); return `<div class="agl-it" data-atr="${e.id}"><span class="bar" style="background:${e.cor || defColor(e.tipo)}"></span>
+          <span class="ti">${esc(e.titulo)}<small>${e.tipo === "missao" ? "Missão" : "Evento"} · ${fmtYmd(e.data,{day:"2-digit",month:"2-digit"})}${e.hora_inicio ? " " + hm(e.hora_inicio) : ""}${e.data_fim && e.tipo === "missao" ? " · prazo final " + fmtYmd(e.data_fim) : ""}</small></span>
+          <span class="tag ${s2.c}">${s2.t}</span></div>`; }).join("")}</div>`; }).join("")
+      : `<div class="empty" style="padding:30px">Nada por aqui. Para atribuir, clique em <b>＋ Criar</b> e marque as pessoas em "Para quem".</div>`;
+  };
+  const ov = overlay(`<div class="mhead"><div class="mt">📤 Atribuídas por mim</div><button class="x" data-close>×</button></div>
+    <div class="mbody"><div class="seg" id="atrF"><button data-f="abertas" class="on">Em aberto</button><button data-f="concluidas">Concluídas</button><button data-f="todas">Todas</button></div>
+    <p class="note" style="margin:8px 0 0">Missões e eventos que você criou na agenda de outras pessoas. Você acompanha a situação e pode editar ou cancelar.</p>
+    <div id="atrList"></div></div>`, "mid");
+  draw("abertas");
+  ov.addEventListener("click", e => {
+    const f = e.target.closest("[data-f]"); if (f){ $$("#atrF [data-f]").forEach(x => x.classList.toggle("on", x === f)); draw(f.dataset.f); return; }
+    const it = e.target.closest("[data-atr]"); if (it){ closeModal(true); openEvento(it.dataset.atr); }
+  });
 }

@@ -29,7 +29,7 @@ async function renderEquipe(){
     return `<div class="member ${p.ativo?"":"off"}">
       <div class="mtop"><span class="avatar" style="background:${p.cor}">${esc(initials(p.nome))}</span>
         <div style="flex:1;min-width:0"><div class="nm">${esc(p.nome)} ${p.id===S.me.id?'<span class="tag blue">você</span>':""}</div>
-        <div class="us">@${esc(p.usuario)} · ${p.papel==="admin"?"Administrador":"Membro"}${p.ativo?"":" · <b style='color:var(--danger)'>desativado</b>"}</div></div></div>
+        <div class="us">@${esc(p.usuario)} · ${p.papel==="admin"?"Administrador":"Membro"}${p.papel!=="admin"&&p.pode_atribuir?" · 📤 atribui missões":""}${p.ativo?"":" · <b style='color:var(--danger)'>desativado</b>"}</div></div></div>
       <div class="stats">
         <div class="stat"><b>${s.abertas}</b><small>demandas abertas</small></div>
         <div class="stat"><b>${s.andamento}</b><small>em andamento</small></div>
@@ -76,6 +76,8 @@ function memberModal(p){
         <div><label class="f">Tipo de acesso</label><select class="fld" id="mbR"><option value="membro" ${!p||p.papel==="membro"?"selected":""}>Membro (vê só o seu)</option><option value="admin" ${p&&p.papel==="admin"?"selected":""}>Administrador (vê todos)</option></select></div>
         ${novo ? "" : `<div><label class="f">Situação</label><select class="fld" id="mbA"><option value="1" ${p.ativo?"selected":""}>Ativo</option><option value="0" ${!p.ativo?"selected":""}>Desativado (sem acesso)</option></select></div>`}
       </div>
+      <div class="section"><label class="chk"><input type="checkbox" id="mbAtr" ${p && p.pode_atribuir ? "checked" : ""}> Pode atribuir missões e eventos para outras pessoas da equipe</label>
+        <p class="note" style="margin:4px 0 0">A pessoa passa a ver a lista de nomes da equipe para escolher em "Para quem" e acompanha o que atribuiu. Ela continua sem ver a agenda ou o kanban dos outros. Administradores já podem.</p></div>
       <div class="section"><label class="f">Cor</label>${swatchesHtml(p ? p.cor : CORES[(S.perfis.length) % CORES.length])}</div>
       <div class="err" id="mbErr" style="margin-top:10px"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" id="mbOk">${novo?"Criar acesso":"Salvar"}</button></div>
@@ -99,9 +101,11 @@ function memberModal(p){
         if (senha.length < 6) throw new Error("A senha precisa ter pelo menos 6 caracteres.");
         const id = await API.rpc("admin_criar_usuario", { p_usuario: usuario, p_senha: senha, p_nome: nome, p_papel: papel });
         if (cor) await API.rpc("admin_atualizar_perfil", { p_id: id, p_nome: nome, p_papel: papel, p_ativo: true, p_cor: cor });
+        if ($("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: id, p_valor: true });
         closeModal(true); toast(`Acesso criado para ${nome}. Usuário: ${usuario}`);
       } else {
         await API.rpc("admin_atualizar_perfil", { p_id: p.id, p_nome: nome, p_papel: papel, p_ativo: $("#mbA").value === "1", p_cor: cor });
+        if (!!p.pode_atribuir !== $("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: p.id, p_valor: $("#mbAtr").checked });
         closeModal(true); toast("Salvo.");
       }
       S.all = null; await reloadPerfis(); renderEquipe();

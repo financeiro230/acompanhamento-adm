@@ -43,6 +43,7 @@
     <nav class="tabs" id="tabs">
       <button class="tab" data-view="agenda">📅 <span>Agenda</span></button>
       <button class="tab" data-view="kanban">📋 <span>Kanban</span></button>
+      <button class="tab" data-view="parados" title="Demandas sem atualização há dias">⏳ <span>Parados</span> <b class="count" id="stCount">0</b></button>
       <button class="tab" data-view="finalizadas">✅ <span>Finalizadas</span> <b class="count" id="finCount">0</b></button>
       <button class="tab admin-only" data-view="equipe">👥 <span>Equipe</span></button>
     </nav>
@@ -57,6 +58,7 @@
   <main>
     <section id="v-agenda" class="view"></section>
     <section id="v-kanban" class="view"></section>
+    <section id="v-parados" class="view"></section>
     <section id="v-finalizadas" class="view"></section>
     <section id="v-equipe" class="view"></section>
   </main>

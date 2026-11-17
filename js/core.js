@@ -86,6 +86,7 @@ const API = window.API_MOCK || {
   },
   async save(table, row){ const { error } = await sb.from(table).upsert(row); if (error) throw error; },
   async del(table, id){ const { error } = await sb.from(table).delete().eq("id", id); if (error) throw error; },
+  async listBy(table, field, value){ const { data, error } = await sb.from(table).select("*").eq(field, value); if (error) throw error; return data || []; },
   async rpc(fn, args){ const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
   async getConfig(chave){ const { data, error } = await sb.from("config").select("valor").eq("chave", chave).maybeSingle(); if (error) throw error; return data ? data.valor : null; },
   async setConfig(chave, valor){ const { error } = await sb.from("config").upsert({ chave, valor, atualizado_em: new Date().toISOString() }); if (error) throw error; },
@@ -111,10 +112,14 @@ const S = {
   demandas: [],
   eventos: [],
   all: null,         // {demandas, eventos} para visão de equipe (admin)
+  equipe: [],        // lista básica da equipe (para quem pode atribuir)
+  atribuidas: [],    // compromissos que eu criei para outras pessoas
   view: "agenda",
   selected: new Set(),
 };
 const isAdmin = () => S.me && S.me.papel === "admin";
+const canAssign = () => !!(S.me && (S.me.papel === "admin" || S.me.pode_atribuir));
+const pessoa = id => S.perfis.find(p => p.id === id) || (S.equipe || []).find(p => p.id === id);
 const perfil = id => S.perfis.find(p => p.id === id);
 const spaceName = () => { const p = perfil(S.space); return p ? p.nome : ""; };
 const isOwnSpace = () => S.me && S.space === S.me.id;

@@ -105,6 +105,8 @@ function cardHtml(it){
         ${it.prioridade==="alta" ? `<span class="tag high">Alta</span>` : ""}
         ${prazoTag(it.prazo, it.status)}
         ${cl.length ? `<span class="tag ${cl.every(c=>c.feito)?"okt":""}">☑ ${cl.filter(c=>c.feito).length}/${cl.length}</span>` : ""}
+        ${(() => { const nx = cl.filter(c => !c.feito && c.prazo).sort((a,b) => a.prazo.localeCompare(b.prazo))[0]; if (!nx || it.status === FIN) return "";
+          return `<span class="tag ${nx.prazo < todayYmd() ? "late" : nx.prazo <= ymd(addDays(new Date(),2)) ? "soon" : ""}" title="Próximo passo: ${esc(nx.texto)}">⏰ passo ${fmtYmd(nx.prazo)}</span>`; })()}
         <span title="Cadastrada em ${fmt(it.criado_em)}">📅 ${ago(it.criado_em)}</span>
         ${notes.length ? `<span>💬 ${notes.length}</span>` : ""}
       </div>
@@ -144,7 +146,7 @@ function renderFinalizadas(){
 function renderBatch(){
   const bar = $("#batch");
   const ids = [...S.selected].filter(id => getD(id));
-  if (!ids.length || !["kanban","finalizadas"].includes(S.view)){ bar.classList.add("hidden"); return; }
+  if (!ids.length || !["kanban","finalizadas","parados"].includes(S.view)){ bar.classList.add("hidden"); return; }
   bar.classList.remove("hidden");
   const inHist = S.view === "finalizadas";
   const opts = COLS.map(c => `<option value="${c.key}">${esc(c.label)}</option>`).join("");
@@ -175,7 +177,7 @@ function renderBatch(){
 
 /* ---------- eventos do quadro ---------- */
 document.addEventListener("click", async e => {
-  if (!["kanban","finalizadas"].includes(S.view) && !e.target.closest("#batch")) return;
+  if (!["kanban","finalizadas","parados"].includes(S.view) && !e.target.closest("#batch")) return;
   const sel = e.target.closest("[data-sel]");
   if (sel){ e.stopPropagation(); const id = sel.dataset.sel; sel.checked ? S.selected.add(id) : S.selected.delete(id); renderAll(); return; }
   const act = e.target.closest("[data-act]");
@@ -297,7 +299,7 @@ function checklistHtml(it){
     <ul class="cklist">${cl.map((c,i) => `<li class="${c.feito?"done":""}">
       <input type="checkbox" data-ck="${c.id}" ${c.feito?"checked":""}>
       <input class="ckt" data-ckt="${c.id}" value="${esc(c.texto)}" title="${c.feitoEm?"Concluído em "+fmt(c.feitoEm):"Clique para editar"}">
-      ${c.feitoEm?`<span class="ckwhen">${fmtD(c.feitoEm)}</span>`:""}
+      ${c.feitoEm?`<span class="ckwhen">${fmtD(c.feitoEm)}</span>`:`<label class="ckdl ${c.prazo && c.prazo < todayYmd() ? "late" : ""}" title="Prazo do passo (aparece na agenda)">⏰<input type="date" data-ckd="${c.id}" value="${esc(c.prazo||"")}"></label>`}
       <button class="ckb" data-ckmv="${c.id}|-1" title="Subir" ${i===0?"disabled":""}>↑</button>
       <button class="ckb" data-ckmv="${c.id}|1" title="Descer" ${i===cl.length-1?"disabled":""}>↓</button>
       <button class="ckb del" data-ckdel="${c.id}" title="Remover passo">×</button></li>`).join("")}</ul>
@@ -344,6 +346,8 @@ function openDemanda(id){
   ov.addEventListener("click", e => {
     const t = e.target;
     if (t.closest("[data-ckadd]")){ ckAdd(); return; }
+    const dl = t.closest(".ckdl"); if (dl && t.tagName !== "INPUT"){ try { dl.querySelector("input").showPicker(); } catch {} return; }
+    if (t.matches && t.matches("[data-ckd]")){ try { t.showPicker(); } catch {} }
     const c1 = t.closest("[data-ck]");
     if (c1){ const cid = c1.dataset.ck, feito = c1.checked, item = (cur().checklist||[]).find(c=>c.id===cid); if (!item) return;
       updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); c.feito = feito; c.feitoEm = feito ? Date.now() : null;
@@ -380,6 +384,12 @@ function openDemanda(id){
     if (e.target.id==="dN" && e.key==="Enter" && (e.ctrlKey||e.metaKey)){ e.preventDefault(); $("#dNok").click(); }
   });
   ov.addEventListener("change", e => {
+    const did = e.target.dataset && e.target.dataset.ckd;
+    if (did !== undefined){ const v = e.target.value || null;
+      const item = (cur().checklist||[]).find(x=>x.id===did);
+      updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===did); if (!c || (c.prazo||null)===v) return false; c.prazo = v;
+        it.historico.push(actorTag({tipo:"check", em:Date.now(), texto: v ? `Prazo do passo "${c.texto}": ${fmtYmd(v,{day:"2-digit",month:"2-digit",year:"numeric"})}` : `Prazo removido do passo "${c.texto}"`})); });
+      ck(); tl(); toast(v ? "Prazo do passo definido — já aparece na agenda." : "Prazo do passo removido."); return; }
     const cid = e.target.dataset && e.target.dataset.ckt; if (cid===undefined) return;
     const v = e.target.value.trim(); if (!v){ ck(); return; }
     updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); if (!c || c.texto===v) return false; c.texto = v; });
@@ -465,3 +475,58 @@ function openColsEditor(){
     catch(ex){ err.textContent = errMsg(ex); $("#colSave").disabled = false; }
   };
 }
+
+/* ---------- parados / sem atualização ---------- */
+const ST = { min: 7, extras: false, scope: "space" };
+const STALE_BUCKETS = [[7,13,"7 a 13 dias"],[14,29,"14 a 29 dias"],[30,59,"30 a 59 dias"],[60,1e9,"60 dias ou mais"]];
+const lastAct = d => Math.max(d.atualizado_em || 0, ...((d.historico||[]).map(h => h.editadoEm || h.em || 0)));
+const idleDays = d => Math.floor((Date.now() - lastAct(d)) / dayMs);
+function staleList(list, min, extras){
+  return (list || []).filter(d => d.status !== FIN && (extras || !["ideias","rascunhos","standby"].includes(d.status)) && idleDays(d) >= min && matchesSearch(d));
+}
+async function renderParados(){
+  const v = $("#v-parados");
+  const team = ST.scope === "team" && isAdmin();
+  if (team && !S.all){ v.innerHTML = `<div class="empty" style="padding:40px"><div class="spinner" style="margin:auto"></div></div>`; try { await loadAll(); } catch(e){ v.innerHTML = `<div class="empty">Erro: ${esc(errMsg(e))}</div>`; return; } }
+  const src = team ? S.all.demandas : S.demandas;
+  const list = staleList(src, ST.min, ST.extras).sort((a,b) => lastAct(a) - lastAct(b));
+  const buckets = STALE_BUCKETS.filter(b => b[1] >= ST.min);
+  const col = b => { const items = list.filter(d => { const n = idleDays(d); return n >= Math.max(b[0], ST.min) && n <= b[1]; });
+    return `<section class="col"><div class="colhead"><span class="dot" style="background:${b[0]>=60?"var(--danger)":b[0]>=30?"#ea580c":b[0]>=14?"var(--warn)":"#8a94a6"}"></span>${b[2]}<span class="count">${items.length}</span></div>
+      <div class="cards">${items.map(staleCard).join("") || `<div class="empty">Nada aqui. 👏</div>`}</div></section>`; };
+  v.innerHTML = `<div class="kbar" style="padding:0 0 4px">
+      <h2 style="margin:0;font-size:18px">⏳ Parados</h2>
+      <span class="note">Sem nenhuma atualização há pelo menos</span>
+      <div class="seg" id="stMin">${[7,14,30,60].map(n => `<button data-stmin="${n}" class="${ST.min===n?"on":""}">${n === 30 ? "1 mês" : n === 60 ? "2 meses" : n + " dias"}</button>`).join("")}</div>
+      ${isAdmin() ? `<select class="fld" id="stScope" style="width:auto"><option value="space" ${!team?"selected":""}>${isOwnSpace() ? "Meu espaço" : "Espaço de " + esc(spaceName())}</option><option value="team" ${team?"selected":""}>Toda a equipe</option></select>` : ""}
+      <label class="chk"><input type="checkbox" id="stExtras" ${ST.extras?"checked":""}> Incluir Ideias, Rascunhos e Stand by</label>
+    </div>
+    <p class="note" style="margin:0 0 12px">Conta qualquer movimento: atualização, mudança de quadro, edição ou passo do checklist. Abra o cartão e registre um andamento para ele sair daqui.</p>
+    <div class="board" style="grid-template-columns:repeat(${buckets.length},minmax(240px,1fr))">${buckets.map(col).join("")}</div>`;
+  $$("#stMin [data-stmin]").forEach(b => b.onclick = () => { ST.min = +b.dataset.stmin; renderAll(); });
+  const sc = $("#stScope"); if (sc) sc.onchange = e => { ST.scope = e.target.value; if (ST.scope === "team") S.all = null; renderParados(); };
+  $("#stExtras").onchange = e => { ST.extras = e.target.checked; renderAll(); };
+}
+function staleCard(d){
+  const n = idleDays(d), c = COLS.find(x => x.key === d.status) || { label: colLabel(d.status), color: "#8a94a6" };
+  const notes = (d.historico||[]).filter(h => h.tipo === "nota"), last = notes[notes.length-1];
+  const own = ST.scope === "team" && isAdmin() ? pessoa(d.dono) : null;
+  return `<article class="card" data-stale="${d.id}" data-dono="${d.dono}"><div class="cbody">
+    <div class="ctitle">${esc(d.titulo)}</div>
+    <div class="cmeta">
+      <span class="tag ${n>=30?"late":n>=14?"soon":""}">⏳ parado há ${n} dias</span>
+      <span class="tag"><span class="dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${esc(c.label)}</span>
+      ${d.prioridade==="alta" ? `<span class="tag high">Alta</span>` : ""}${prazoTag(d.prazo, d.status)}
+      ${own ? `<span class="tag" style="background:${own.cor}22;color:${own.cor}">👤 ${esc(own.nome)}</span>` : ""}
+    </div>
+    <div class="lastupd">${last ? `<b>Última atualização ${fmtD(last.em)}:</b> ${esc(last.texto)}` : `<b>Sem atualizações registradas</b> · cadastrada em ${fmtD(d.criado_em)}`}</div>
+  </div></article>`;
+}
+document.addEventListener("click", async e => {
+  if (S.view !== "parados") return;
+  const c = e.target.closest("[data-stale]"); if (!c) return;
+  e.stopPropagation();
+  const id = c.dataset.stale, dono = c.dataset.dono;
+  if (dono !== S.space){ await setSpace(dono); }
+  openDemanda(id);
+}, true);
