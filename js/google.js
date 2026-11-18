@@ -150,7 +150,7 @@ function gSideHtml(){
   if (!isOwnSpace()) return gOn() ? `<div class="filt"><h4>Google Agenda</h4>${gReady() ? gTeamSideHtml() : `<button class="btn" data-g="connect" style="width:100%">🔄 Reconectar Google</button>`}</div>` : "";
   if (!gOn()) return `<div class="filt"><h4>Google Agenda</h4>
     <button class="btn" data-g="connect" style="width:100%">🔗 Conectar meu Google Agenda</button>
-    <p class="note" style="margin:0">Veja seus eventos do Google aqui e responda convites. Use sua conta @unigameslojas.com. É opcional.</p></div>`;
+    <p class="note" style="margin:0">Veja seus eventos do Google aqui e responda convites. Use a conta Google autorizada pelo administrador. É opcional.</p></div>`;
   if (!gReady()) return `<div class="filt"><h4>Google Agenda</h4>
     <button class="btn" data-g="connect" style="width:100%">🔄 Reconectar Google</button>
     <p class="note" style="margin:0">Por segurança, o Google pede para reconectar a cada sessão. ${esc(gPref().email || "")}</p></div>`;
