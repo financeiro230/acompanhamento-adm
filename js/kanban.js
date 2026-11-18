@@ -7,7 +7,9 @@ const getD = id => S.demandas.find(d => d.id === id);
 const KF = { filtro: "todos" };
 function matchesFilter(it){
   const f = KF.filtro, today = todayYmd();
-  if (f === "alta") return it.prioridade === "alta";
+  if (f === "alta" || f === "p_alta") return prioKey(it.prioridade) === "alta";
+  if (f === "p_media") return prioKey(it.prioridade) === "media";
+  if (f === "p_baixa") return prioKey(it.prioridade) === "baixa";
   if (f === "vencido") return !!(it.prazo && it.prazo < today) || (it.checklist||[]).some(c => !c.feito && c.prazo && c.prazo < today);
   if (f === "semana") return !!(it.prazo && it.prazo >= today && it.prazo <= ymd(addDays(new Date(), 7)));
   if (f === "semprazo") return !it.prazo;
@@ -21,9 +23,9 @@ function matchesSearch(it){
 }
 
 /* ---------- ações ---------- */
-function createDemanda({titulo, descricao="", prazo=null, prioridade="normal", status="pendente", dono=S.space}){
+function createDemanda({titulo, descricao="", prazo=null, prioridade="media", status="pendente", dono=S.space, cor=null}){
   const now = Date.now();
-  const it = { id: uuid(), dono, titulo: titulo.trim(), descricao: (descricao||"").trim(), status, prioridade,
+  const it = { id: uuid(), dono, titulo: titulo.trim(), descricao: (descricao||"").trim(), status, prioridade, cor: cor || null, anexos: [],
     prazo: prazo || null, checklist: [], criado_em: now, atualizado_em: now, finalizado_em: null, criado_por: S.me.id,
     historico: [actorTag({tipo:"criado", em:now, texto:`Cadastrada em "${colLabel(status)}"`})] };
   if (dono === S.space) S.demandas.push(it);
@@ -52,7 +54,7 @@ function moveD(id, to){
 const addNoteD = (id, texto) => texto.trim() && updateD(id, it => { it.historico.push(actorTag({tipo:"nota", em:Date.now(), texto:texto.trim()})); });
 function editD(id, changes){
   const cur = getD(id); if (!cur) return;
-  const names = {titulo:"título", descricao:"descrição", prazo:"prazo", prioridade:"prioridade"};
+  const names = {titulo:"título", descricao:"descrição", prazo:"prazo", prioridade:"prioridade", cor:"cor"};
   const changed = Object.keys(changes).filter(k => (cur[k]||"") !== (changes[k]||""));
   if (!changed.length) return;
   return updateD(id, it => {
@@ -76,7 +78,7 @@ function transferD(id, novoDono){
 /* ---------- render quadro ---------- */
 function renderKanban(){
   const v = $("#v-kanban");
-  const prioRank = p => p === "alta" ? 0 : 1;
+  const prioRank = prioRankOf;
   const colHtml = c => {
     const known = new Set([...COLS.map(x => x.key), FIN]);
     const first = (COLS.find(x => x.lado !== "lateral") || COLS[0]).key;
@@ -97,7 +99,7 @@ function renderKanban(){
   const total = S.demandas.filter(d => d.status !== FIN).length, shown = S.demandas.filter(d => d.status !== FIN && matchesSearch(d) && matchesFilter(d)).length;
   v.innerHTML = `<div class="kbar"><button class="btn primary" data-act="newD">＋ Nova demanda</button>
       <div class="ksearch"><span>🔎</span><input id="kSearch" placeholder="Pesquisar no kanban (título, descrição, atualizações, passos)…" value="${esc(S.q||"")}">${S.q ? `<button class="ckb" data-act="kclear" title="Limpar">×</button>` : ""}</div>
-      <select class="fld" id="kFiltro" style="width:auto">${[["todos","Todas"],["alta","Alta prioridade"],["vencido","Com prazo vencido"],["semana","Prazo nos próximos 7 dias"],["semprazo","Sem prazo"]].map(([k,l]) => `<option value="${k}" ${KF.filtro===k?"selected":""}>${l}</option>`).join("")}</select>
+      <select class="fld" id="kFiltro" style="width:auto">${[["todos","Todas as demandas"],["p_alta","▲ Prioridade alta"],["p_media","◆ Prioridade média"],["p_baixa","▼ Prioridade baixa"],["vencido","Com prazo vencido"],["semana","Prazo nos próximos 7 dias"],["semprazo","Sem prazo"]].map(([k,l]) => `<option value="${k}" ${KF.filtro===k?"selected":""}>${l}</option>`).join("")}</select>
       ${S.q || KF.filtro !== "todos" ? `<span class="note">${shown} de ${total}</span>` : ""}
       <div class="spacer"></div>
       ${isOwnSpace() ? `<button class="btn" data-act="cols">⚙ Meus quadros</button>` : ""}</div>
@@ -113,19 +115,21 @@ function cardHtml(it){
   const notes = (it.historico||[]).filter(h => h.tipo === "nota");
   const last = notes[notes.length-1];
   const cl = it.checklist || [];
-  return `<article class="card ${S.selected.has(it.id)?"sel":""}" draggable="true" data-id="${it.id}">
+  const cc = cardColor(it.cor), anx = (it.anexos||[]).length;
+  return `<article class="card ${S.selected.has(it.id)?"sel":""}${cc.cls}"${cc.st} draggable="true" data-id="${it.id}">
     <input type="checkbox" data-sel="${it.id}" ${S.selected.has(it.id)?"checked":""} title="Selecionar">
     <div class="cbody">
       <div class="ctitle">${esc(it.titulo)}</div>
       ${it.descricao ? `<div class="cdesc">${esc(it.descricao)}</div>` : ""}
       <div class="cmeta">
-        ${it.prioridade==="alta" ? `<span class="tag high">Alta</span>` : ""}
+        ${prioTag(it.prioridade)}
         ${prazoTag(it.prazo, it.status)}
         ${cl.length ? `<span class="tag ${cl.every(c=>c.feito)?"okt":""}">☑ ${cl.filter(c=>c.feito).length}/${cl.length}</span>` : ""}
         ${(() => { const nx = cl.filter(c => !c.feito && c.prazo).sort((a,b) => a.prazo.localeCompare(b.prazo))[0]; if (!nx || it.status === FIN) return "";
           return `<span class="tag ${nx.prazo < todayYmd() ? "late" : nx.prazo <= ymd(addDays(new Date(),2)) ? "soon" : ""}" title="Próximo passo: ${esc(nx.texto)}">⏰ passo ${fmtYmd(nx.prazo)}</span>`; })()}
         <span title="Cadastrada em ${fmt(it.criado_em)}">📅 ${ago(it.criado_em)}</span>
         ${notes.length ? `<span>💬 ${notes.length}</span>` : ""}
+        ${anx ? `<span title="${anx} anexo(s)">📎 ${anx}</span>` : ""}
       </div>
       ${last ? `<div class="lastupd"><b>${fmtD(last.em)}:</b> ${esc(last.texto)}</div>` : ""}
     </div></article>`;
@@ -259,8 +263,9 @@ function openNewDemanda(pre = {}){
       <div class="grid3 section">
         <div><label class="f">Quadro</label><select class="fld" id="nS">${COLS.map(c=>`<option value="${c.key}" ${c.key===firstMain()?"selected":""}>${esc(c.label)}</option>`).join("")}</select></div>
         <div><label class="f">Prazo</label><input class="fld" type="date" id="nP" value="${esc(pre.prazo||"")}"></div>
-        <div><label class="f">Prioridade</label><select class="fld" id="nR"><option value="normal">Normal</option><option value="alta">Alta</option></select></div>
+        <div><label class="f">Prioridade</label><select class="fld" id="nR">${prioOpts(pre.prioridade || "media")}</select></div>
       </div>
+      <div class="section"><label class="f">Cor do cartão (opcional)</label>${swatchesHtml(null, "dcor", "#8a94a6")}</div>
       ${donoSelectHtml("nO", S.space)}
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Cadastrar</button></div>
     </form>`, "mid");
@@ -269,7 +274,7 @@ function openNewDemanda(pre = {}){
     e.preventDefault();
     const t = $("#nT").value.trim(); if (!t) return;
     const dono = $("#nO") ? $("#nO").value : S.space;
-    createDemanda({titulo:t, descricao:$("#nD").value, status:$("#nS").value, prazo:$("#nP").value||null, prioridade:$("#nR").value, dono});
+    createDemanda({titulo:t, descricao:$("#nD").value, status:$("#nS").value, prazo:$("#nP").value||null, prioridade:$("#nR").value, cor:swValue(ov, "dcor"), dono});
     closeModal(true); toast(dono === S.space ? "Demanda cadastrada." : `Demanda cadastrada no espaço de ${perfil(dono).nome}.`);
   });
 }
@@ -343,10 +348,12 @@ function openDemanda(id){
     <textarea class="fld" id="dD" placeholder="Sem descrição">${esc(it.descricao||"")}</textarea>
     <div class="grid2" style="margin-top:12px">
       <div><label class="f">Prazo</label><input class="fld" type="date" id="dP" value="${esc(it.prazo||"")}"></div>
-      <div><label class="f">Prioridade</label><select class="fld" id="dR"><option value="normal" ${it.prioridade!=="alta"?"selected":""}>Normal</option><option value="alta" ${it.prioridade==="alta"?"selected":""}>Alta</option></select></div>
+      <div><label class="f">Prioridade</label><select class="fld" id="dR">${prioOpts(it.prioridade)}</select></div>
     </div>
+    <div class="section"><label class="f">Cor do cartão</label><div id="dCor">${swatchesHtml(it.cor||null, "dcor", "#8a94a6")}</div></div>
     <div class="dates" id="dates">${datesHtml(it)}</div>
     <div class="section"><h3>✅ Checklist / passo a passo</h3><div id="ck">${checklistHtml(it)}</div></div>
+    <div class="section"><h3>📎 Anexos</h3>${anexosHtml("d", it.id)}</div>
     <div class="section"><h3>💬 Nova atualização / andamento</h3>
       <div class="upd"><textarea class="fld" id="dN" placeholder="O que aconteceu? (Ctrl+Enter para registrar)"></textarea><button class="btn primary" id="dNok">Registrar</button></div></div>
     <div class="section"><h3>🕓 Histórico</h3><ul class="timeline" id="tl">${timelineHtml(it)}</ul></div>
@@ -363,6 +370,7 @@ function openDemanda(id){
 
   ov.addEventListener("click", e => {
     const t = e.target;
+    if (t.closest("#dCor [data-sw]")){ K.dirty = true; $("#dSave").classList.remove("hidden"); return; }
     if (t.closest("[data-ckadd]")){ ckAdd(); return; }
     const dl = t.closest(".ckdl"); if (dl && t.tagName !== "INPUT"){ try { dl.querySelector("input").showPicker(); } catch {} return; }
     if (t.matches && t.matches("[data-ckd]")){ try { t.showPicker(); } catch {} }
@@ -412,6 +420,7 @@ function openDemanda(id){
     const v = e.target.value.trim(); if (!v){ ck(); return; }
     updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); if (!c || c.texto===v) return false; c.texto = v; });
   });
+  $("#dCor").addEventListener("input", () => { K.dirty = true; $("#dSave").classList.remove("hidden"); });
   ["#dT","#dD","#dP","#dR"].forEach(s => $(s).addEventListener("input", () => { K.dirty = true; $("#dSave").classList.remove("hidden"); }));
   $("#dNok").onclick = () => { const v = $("#dN").value.trim(); if (!v) return; addNoteD(K.openId, v); $("#dN").value = ""; tl(); refreshDemandaModal(); toast("Atualização registrada."); };
 }
@@ -430,7 +439,8 @@ function wireDemandaFoot(){
 }
 function saveDemandaEdits(){
   const t = $("#dT").value.trim(); if (!t){ toast("O título não pode ficar vazio."); return; }
-  editD(K.openId, {titulo:t, descricao:$("#dD").value.trim(), prazo:$("#dP").value||null, prioridade:$("#dR").value});
+  const cur = getD(K.openId), pr = $("#dR").value;
+  editD(K.openId, {titulo:t, descricao:$("#dD").value.trim(), prazo:$("#dP").value||null, prioridade: prioKey(cur.prioridade) === pr ? cur.prioridade : pr, cor:swValue($("#ov"), "dcor")});
   K.dirty = false; $("#dSave").classList.add("hidden"); toast("Alterações salvas.");
 }
 function refreshDemandaModal(){
@@ -442,7 +452,7 @@ function refreshDemandaModal(){
   const f = $("#mfoot"); if (f){ f.innerHTML = footHtml(it); wireDemandaFoot(); }
   if (!K.dirty){
     const sv = (s,v) => { const el = $(s); if (el && document.activeElement !== el) el.value = v; };
-    sv("#dT", it.titulo); sv("#dD", it.descricao||""); sv("#dP", it.prazo||""); sv("#dR", it.prioridade||"normal");
+    sv("#dT", it.titulo); sv("#dD", it.descricao||""); sv("#dP", it.prazo||""); sv("#dR", prioKey(it.prioridade)); const dc = $("#dCor"); if (dc) dc.innerHTML = swatchesHtml(it.cor||null, "dcor", "#8a94a6");
   }
 }
 
@@ -541,7 +551,7 @@ function staleCard(d){
     <div class="cmeta">
       <span class="tag ${n>=30?"late":n>=14?"soon":""}">⏳ parado há ${n} dias</span>
       <span class="tag"><span class="dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${esc(c.label)}</span>
-      ${d.prioridade==="alta" ? `<span class="tag high">Alta</span>` : ""}${prazoTag(d.prazo, d.status)}
+      ${prioTag(d.prioridade)}${prazoTag(d.prazo, d.status)}
       ${own ? `<span class="tag" style="background:${own.cor}22;color:${own.cor}">👤 ${esc(own.nome)}</span>` : ""}
     </div>
     <div class="lastupd">${last ? `<b>Última atualização ${fmtD(last.em)}:</b> ${esc(last.texto)}` : `<b>Sem atualizações registradas</b> · cadastrada em ${fmtD(d.criado_em)}`}</div>
@@ -562,13 +572,13 @@ function openDemandaPeek(id){
   const c = COLS.find(x => x.key === it.status) || { label: colLabel(it.status), color: "#8a94a6" };
   const cl = it.checklist || [], pend = cl.filter(x => !x.feito);
   const notes = (it.historico||[]).filter(h => h.tipo === "nota").slice(-3).reverse();
-  const ov = overlay(`<div class="peek-bar" style="background:${c.color}"></div>
+  const ov = overlay(`<div class="peek-bar" style="background:${it.cor || c.color}"></div>
     <div class="mhead" style="align-items:center"><div class="mt">${esc(it.titulo)}</div>
       <button class="x" data-pk="edit" title="Abrir para editar">✏️</button><button class="x" data-pk="del" title="Excluir">🗑</button><button class="x" data-close title="Fechar">×</button></div>
     <div class="mbody">
       <div class="cmeta" style="margin:0 0 12px">
         <span class="tag"><span class="dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${esc(c.label)}</span>
-        ${it.prioridade === "alta" ? `<span class="tag high">Alta prioridade</span>` : ""}
+        ${prioTag(it.prioridade, true)}
         ${prazoTag(it.prazo, it.status) || (it.prazo ? `<span class="tag">Prazo ${fmtYmd(it.prazo)}</span>` : `<span class="tag">Sem prazo</span>`)}
         <span class="tag">⏳ ${idleDays(it)} dia(s) sem movimento</span>
       </div>
@@ -578,6 +588,7 @@ function openDemandaPeek(id){
       <div class="section"><h3>💬 Últimas atualizações</h3>
         ${notes.length ? notes.map(n => `<div class="lastupd" style="border-top:0;padding-top:0;-webkit-line-clamp:3"><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
         <div class="upd" style="margin-top:8px"><input class="fld" id="pkNote" placeholder="Registrar andamento rápido… (Enter)"><button class="btn sm primary" data-pk="note">Registrar</button></div></div>
+      <div class="section"><h3>📎 Anexos</h3>${anexosHtml("d", it.id)}</div>
       <div class="dates"><div><b>Cadastro</b>${fmt(it.criado_em)}</div><div><b>Última modificação</b>${fmt(it.atualizado_em)}</div>${it.finalizado_em ? `<div><b>Finalização</b>${fmt(it.finalizado_em)}</div>` : ""}</div>
     </div>
     <div class="mfoot"><select class="fld" id="pkMove" style="width:auto"><option value="">Mover para…</option>${COLS.filter(x => x.key !== it.status).map(x => `<option value="${x.key}">${esc(x.label)}</option>`).join("")}</select>

@@ -13,10 +13,10 @@ const gReady = () => G.token && Date.now() < G.exp - 60000;
 const gKey = () => "cu_g_" + (S.me ? S.me.id : "");
 
 function gRestore(){
-  try { const t = JSON.parse(sessionStorage.getItem(gKey()) || "null"); if (t && t.exp > Date.now() + 60000){ G.token = t.token; G.exp = t.exp; G.email = t.email; } } catch {}
+  try { const t = JSON.parse(sessionStorage.getItem(gKey()) || "null"); if (t && t.exp > Date.now() + 60000){ G.token = t.token; G.exp = t.exp; G.email = t.email; G.scopes = t.scopes || ""; } } catch {}
 }
-function gStore(){ try { sessionStorage.setItem(gKey(), JSON.stringify({ token: G.token, exp: G.exp, email: G.email })); } catch {} }
-function gClear(){ G.token = null; G.exp = 0; G.events = []; G.from = G.to = null; G.team = {}; try { sessionStorage.removeItem(gKey()); } catch {} }
+function gStore(){ try { sessionStorage.setItem(gKey(), JSON.stringify({ token: G.token, exp: G.exp, email: G.email, scopes: G.scopes || "" })); } catch {} }
+function gClear(){ G.token = null; G.exp = 0; G.scopes = ""; G.events = []; G.from = G.to = null; G.team = {}; try { sessionStorage.removeItem(gKey()); } catch {} }
 
 function loadGis(){
   if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
@@ -31,10 +31,10 @@ async function gConnect(){
   const first = !gOn();
   return new Promise(resolve => {
     G.client = google.accounts.oauth2.initTokenClient({
-      client_id: GCFG.clientId, scope: GCFG.scope, hint: (gPref() && gPref().email) || undefined,
+      client_id: GCFG.clientId, scope: GCFG.scope, include_granted_scopes: true, hint: (gPref() && gPref().email) || undefined,
       callback: async resp => {
         if (resp.error){ toast(resp.error === "access_denied" ? "Conexão com o Google cancelada." : "Google: " + resp.error, true); resolve(false); return; }
-        G.token = resp.access_token; G.exp = Date.now() + (resp.expires_in || 3600) * 1000;
+        G.token = resp.access_token; G.exp = Date.now() + (resp.expires_in || 3600) * 1000; G.scopes = resp.scope || "";
         try { const cal = await gFetch("/calendars/primary"); G.email = cal.id; } catch {}
         gStore();
         if (first || !gPref() || gPref().email !== G.email){ const p = prefs(); p.google = { ativo: true, email: G.email }; await savePrefs(p); }

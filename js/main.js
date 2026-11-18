@@ -10,6 +10,7 @@ function renderAll(){
   else if (S.view === "finalizadas") renderFinalizadas();
   else if (S.view === "parados") renderParados();
   else if (S.view === "equipe") renderEquipe();
+  else if (S.view === "notas") renderNotas();
   renderBatch();
   if (K.openId && modalOpen()) refreshDemandaModal();
 }
@@ -70,6 +71,7 @@ async function startApp(uid){
   if (!me){ await API.logout(); showLogin("Seu usuário não tem perfil cadastrado. Fale com o administrador."); return; }
   if (!me.ativo){ await API.logout(); showLogin("Este usuário está desativado."); return; }
   S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
+  S.notas = []; N.loaded = false; N.q = ""; A.filt.concl = undefined;
   applyTheme(prefs()); gRestore();
   if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
   loadEquipeGoogle();
@@ -79,7 +81,7 @@ async function startApp(uid){
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
   const h = location.hash.slice(1);
-  setView(["agenda","kanban","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
+  setView(["agenda","kanban","notas","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
   await reloadSpace(true);
   resetIdle();
 }
@@ -181,7 +183,7 @@ $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view
 $("#spaceSel").addEventListener("change", e => setSpace(e.target.value));
 $("#search").addEventListener("input", e => { S.q = e.target.value; renderAll(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && modalOpen()) closeModal(); });
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","parados","finalizadas","equipe"].includes(h)) setView(h); });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","notas","parados","finalizadas","equipe"].includes(h)) setView(h); });
 
 /* ---------- inatividade e atualização ---------- */
 let idleT = null;

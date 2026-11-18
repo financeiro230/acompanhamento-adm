@@ -7,6 +7,7 @@ const REC = { nenhuma:"Não repete", diaria:"Todo dia", dias_uteis:"Dias úteis 
 const getE = id => S.eventos.find(e => e.id === id) || (S.atribuidas || []).find(e => e.id === id);
 const toMin = t => { if (!t) return null; const [h,m] = t.split(":").map(Number); return h*60+m; };
 const minToHm = m => `${pad(Math.floor(m/60))}:${pad(m%60)}`;
+const showDoneMissions = () => A.filt.concl !== undefined ? A.filt.concl : prefs().agConcluidas !== false;
 const defColor = tipo => tipo === "missao" ? prefs().corMissao : tipo === "prazo" ? prefs().corPrazo : prefs().corEvento;
 
 /* ---------- recorrência ---------- */
@@ -52,6 +53,7 @@ function instances(from, to){
       let end = allDay ? null : (ev.hora_fim ? toMin(ev.hora_fim) : start + (ev.tipo === "missao" ? 30 : 60));
       if (!allDay && end <= start) end = start + 30;
       const done = ev.tipo === "missao" && isDone(ev, date);
+      if (done && !showDoneMissions()) continue;
       const late = ev.tipo === "missao" && !done && (prazoMissao ? prazoMissao < today
         : (date < today || (date === today && !allDay && (end ?? 0) < nowMin)));
       out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:ev.titulo,
@@ -121,7 +123,7 @@ function toggleDone(id, date){
 /* ---------- render ---------- */
 function renderAgenda(){
   const v = $("#v-agenda");
-  v.innerHTML = `<aside class="ag-side ${prefs().sidebar===false?"closed":""}" id="agSide"></aside>
+  v.innerHTML = `<aside class="ag-side ${prefs().sidebar===false?"closed":""} ${A.sideOpen?"open":""}" id="agSide"></aside><div class="ag-scrim" data-ag="side"></div>
     <div class="ag-main">
       <div class="ag-bar">
         <button class="btn ghost sbtoggle" data-ag="side" title="Mostrar/esconder menu lateral">☰</button>
@@ -131,7 +133,7 @@ function renderAgenda(){
         <button class="btn ghost" data-ag="next" title="Próximo">›</button>
         <h2>${esc(cap(agTitle()))}</h2>
         <div class="spacer"></div>
-        <button class="btn" data-ag="io" title="Exportar ou importar agenda">⇅ Exportar / importar</button>
+        <button class="btn" data-ag="io" title="Exportar ou importar agenda">⇅ <span class="hide-sm">Exportar / importar</span></button>
         <div class="seg">${[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"]].map(([k,l]) => `<button data-mode="${k}" class="${A.mode===k?"on":""}">${l}</button>`).join("")}</div>
       </div>
       <div class="ag-body" id="agBody"></div>
@@ -195,6 +197,7 @@ function renderSide(){
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
       <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban e passos</label>
+      <label class="chk"><input type="checkbox" data-filt="concl" ${showDoneMissions()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Missões concluídas</label>
       ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
     ${gSideHtml()}
@@ -305,6 +308,7 @@ function listHtml(){
 document.addEventListener("change", e => {
   const f = e.target.closest("[data-filt]"); if (!f) return;
   A.filt[f.dataset.filt] = f.checked; renderAgenda();
+  if (f.dataset.filt === "concl"){ const p = prefs(); p.agConcluidas = f.checked; savePrefs(p); toast(f.checked ? "Missões concluídas aparecem na agenda." : "Missões concluídas escondidas da agenda."); }
 });
 document.addEventListener("click", e => {
   if (S.view !== "agenda" || e.target.closest("#modalRoot")) return;
@@ -314,12 +318,14 @@ document.addEventListener("click", e => {
   const inst = t.closest("[data-inst]");
   if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else if (k === "t") gOpenEvent(id.split("~")[1], date, decodeURIComponent(id.split("~")[0])); else openEventoPeek(id, date); return; }
   const go = t.closest("[data-goto]");
-  if (go){ A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
+  if (go){ A.sideOpen = false; A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
   const md = t.closest("[data-mode]"); if (md){ A.mode = md.dataset.mode; renderAgenda(); return; }
   const ag = t.closest("[data-ag]");
   if (ag){
     const a = ag.dataset.ag, c = A.cursor;
     if (a === "new") openEvento(null, { data: A.mode === "lista" ? todayYmd() : ymd(A.cursor) });
+    if (a === "side" && window.matchMedia("(max-width:900px)").matches){ A.sideOpen = !A.sideOpen; $("#agSide").classList.toggle("open", A.sideOpen); return; }
+    if (!["mprev","mnext"].includes(a)) A.sideOpen = false;
     if (a === "side"){ const p = prefs(); p.sidebar = p.sidebar === false; savePrefs(p); $("#agSide").classList.toggle("closed", p.sidebar === false); return; }
     if (a === "io"){ openIO(); return; }
     if (a === "atrib"){ openAtribuidas(); return; }
@@ -445,6 +451,8 @@ function openEventoPeek(id, date){
       <div id="peekPart"></div>
       ${cl.length ? `<div class="section"><h3>✅ Checklist · ${cl.filter(c => c.feito).length}/${cl.length}</h3>${cl.map(c => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pck="${c.id}" ${c.feito?"checked":""}> <span style="${c.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(c.texto)}</span></label>`).join("")}</div>` : ""}
       ${ev.descricao ? `<div class="section"><h3>Descrição</h3><div style="white-space:pre-wrap;line-height:1.5">${esc(ev.descricao)}</div></div>` : ""}
+      <div class="section"><h3>💬 Atualizações</h3>${evUpdHtml(id)}</div>
+      <div class="section"><h3>📎 Anexos</h3>${anexosHtml("e", id)}</div>
     </div>`, "mid peek");
   loadParticipants(ev, ctx, "#peekPart");
   ov.addEventListener("click", e => {
@@ -532,6 +540,9 @@ function openEvento(id, pre = {}, dateCtx = null){
           : `<p class="note" style="margin:0">Para gerar link do Google Meet, conecte seu Google Agenda no menu lateral da agenda.</p>`}</div>
       <div class="section"><label class="f">Descrição / observações</label><textarea class="fld" id="evDesc">${esc(d.descricao||"")}</textarea></div>
       <div class="section"><label class="f">✅ Checklist / passo a passo</label><div id="evCk">${evChecklistHtml(d.checklist)}</div></div>
+      ${ev ? `<div class="section"><label class="f">💬 Atualizações / andamento</label>${evUpdHtml(ev.id)}</div>
+      <div class="section"><label class="f">📎 Anexos</label>${anexosHtml("e", ev.id)}</div>`
+        : `<p class="note section">💬 Atualizações e 📎 anexos ficam disponíveis depois de salvar o compromisso.</p>`}
       <div class="section"><label class="f">Cor</label><div id="evCorBox">${swatchesHtml(d.cor, "cor", defColor(d.tipo))}</div>
         <p class="note" style="margin:6px 0 0">A primeira opção (quadriculada) segue a cor padrão, que você muda em 🎨 Aparência. As outras deixam a cor fixa.</p></div>
       ${ev ? (isAdmin() && !ev.grupo ? donoSelectHtml("evO", d.dono) : "") : (canAssign() ? whoHtml(d.dono) : "")}
@@ -542,7 +553,7 @@ function openEvento(id, pre = {}, dateCtx = null){
       <div class="spacer"></div><button class="btn" data-close>Cancelar</button><button class="btn primary" id="evSave">Salvar</button></div>`, "mid", { dirty: () => dirty });
   loadParticipants(ev, ctx, "#evPart");
   const f = $("#evForm");
-  f.addEventListener("input", () => { dirty = true; });
+  f.addEventListener("input", e => { if (!e.target.closest("[data-nodirty],[data-anx]")) dirty = true; });
   let tipo = d.tipo;
   const syncFim = () => {
     const rOn = $("#evR").value !== "nenhuma";
@@ -627,7 +638,7 @@ function openEvento(id, pre = {}, dateCtx = null){
     const grupo = !ev && donos.length > 1 ? uuid() : (ev ? ev.grupo || null : null);
     if (!ev && grupo) base.conclusao_conjunta = tipo === "missao" && !!($("#evConj") && $("#evConj").checked);
     const rows = donos.map(dono => {
-      const row = Object.assign(ev ? clone(ev) : { id: uuid(), criado_em: now, criado_por: S.me.id, concluida:false, concluida_em:null, concluidas:[], historico:[], meet_link:null, google_id:null }, base, { dono, grupo });
+      const row = Object.assign(ev ? clone(getE(ev.id) || ev) : { id: uuid(), criado_em: now, criado_por: S.me.id, concluida:false, concluida_em:null, concluidas:[], historico:[], meet_link:null, google_id:null }, base, { dono, grupo });
       if (!ev && !grupo) row.conclusao_conjunta = false;
       row.historico = row.historico || [];
       const h = ev ? {tipo:"edicao", em:now, texto:"Editado"} : {tipo:"criado", em:now, texto: tipo==="missao" ? "Missão criada" : "Evento criado"};
@@ -646,7 +657,7 @@ function openEvento(id, pre = {}, dateCtx = null){
       } catch(ex){ toast("Google: " + errMsg(ex) + " — o compromisso foi salvo sem o link.", true); }
     }
     for (const row of rows){
-      if (ev){ Object.assign(ev, row); if (row.dono !== S.space) S.eventos = S.eventos.filter(x => x.id !== row.id); }
+      if (ev){ Object.assign(getE(ev.id) || ev, row); if (row.dono !== S.space) S.eventos = S.eventos.filter(x => x.id !== row.id); }
       else if (row.dono === S.space) S.eventos.push(row);
       if (row.dono !== S.me.id && row.criado_por === S.me.id){ const i = S.atribuidas.findIndex(x => x.id === row.id); if (i >= 0) S.atribuidas[i] = row; else S.atribuidas.push(row); }
     }
@@ -664,7 +675,7 @@ function openEvento(id, pre = {}, dateCtx = null){
 }
 
 /* ---------- exportar / importar ---------- */
-const icsEsc = t => String(t||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\;");
+const icsEsc = t => String(t||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
 const icsDate = s => s.replace(/-/g,"");
 function icsFold(line){ const out = []; while (line.length > 73){ out.push(line.slice(0,73)); line = " " + line.slice(73); } out.push(line); return out.join("\r\n"); }
 function buildIcs(evs){

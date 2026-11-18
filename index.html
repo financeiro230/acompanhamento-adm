@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=202611181059">
+<link rel="stylesheet" href="css/app.css?v=202611181755">
 </head>
 <body data-t="claro">
 
@@ -43,6 +43,7 @@
     <nav class="tabs" id="tabs">
       <button class="tab" data-view="agenda">📅 <span>Agenda</span></button>
       <button class="tab" data-view="kanban">📋 <span>Kanban</span></button>
+      <button class="tab" data-view="notas" title="Anotações rápidas, só suas">📝 <span>Notas</span></button>
       <button class="tab" data-view="parados" title="Demandas sem atualização há dias">⏳ <span>Parados</span> <b class="count" id="stCount">0</b></button>
       <button class="tab" data-view="finalizadas">✅ <span>Finalizadas</span> <b class="count" id="finCount">0</b></button>
       <button class="tab admin-only" data-view="equipe">👥 <span>Equipe</span></button>
@@ -58,6 +59,7 @@
   <main>
     <section id="v-agenda" class="view"></section>
     <section id="v-kanban" class="view"></section>
+    <section id="v-notas" class="view"></section>
     <section id="v-parados" class="view"></section>
     <section id="v-finalizadas" class="view"></section>
     <section id="v-equipe" class="view"></section>
@@ -69,11 +71,12 @@
 <div id="toast" class="hidden"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/core.js?v=202611181059"></script>
-<script src="js/kanban.js?v=202611181059"></script>
-<script src="js/agenda.js?v=202611181059"></script>
-<script src="js/equipe.js?v=202611181059"></script>
-<script src="js/google.js?v=202611181059"></script>
-<script src="js/main.js?v=202611181059"></script>
+<script src="js/core.js?v=202611181755"></script>
+<script src="js/kanban.js?v=202611181755"></script>
+<script src="js/agenda.js?v=202611181755"></script>
+<script src="js/equipe.js?v=202611181755"></script>
+<script src="js/extras.js?v=202611181755"></script>
+<script src="js/google.js?v=202611181755"></script>
+<script src="js/main.js?v=202611181755"></script>
 </body>
 </html>
