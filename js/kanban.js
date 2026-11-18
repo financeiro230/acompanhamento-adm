@@ -4,8 +4,17 @@
 const K = { inlineAdd: null, openId: null, dirty: false, editingNote: null };
 const getD = id => S.demandas.find(d => d.id === id);
 
+const KF = { filtro: "todos" };
+function matchesFilter(it){
+  const f = KF.filtro, today = todayYmd();
+  if (f === "alta") return it.prioridade === "alta";
+  if (f === "vencido") return !!(it.prazo && it.prazo < today) || (it.checklist||[]).some(c => !c.feito && c.prazo && c.prazo < today);
+  if (f === "semana") return !!(it.prazo && it.prazo >= today && it.prazo <= ymd(addDays(new Date(), 7)));
+  if (f === "semprazo") return !it.prazo;
+  return true;
+}
 function matchesSearch(it){
-  const q = $("#search").value.trim().toLowerCase();
+  const q = (S.q || "").trim().toLowerCase();
   if (!q) return true;
   const hay = (it.titulo + " " + (it.descricao||"") + " " + (it.historico||[]).filter(h=>h.tipo==="nota").map(h=>h.texto).join(" ") + " " + (it.checklist||[]).map(c=>c.texto).join(" ")).toLowerCase();
   return hay.includes(q);
@@ -71,7 +80,7 @@ function renderKanban(){
   const colHtml = c => {
     const known = new Set([...COLS.map(x => x.key), FIN]);
     const first = (COLS.find(x => x.lado !== "lateral") || COLS[0]).key;
-    const list = S.demandas.filter(i => (i.status === c.key || (c.key === first && !known.has(i.status))) && matchesSearch(i))
+    const list = S.demandas.filter(i => (i.status === c.key || (c.key === first && !known.has(i.status))) && matchesSearch(i) && matchesFilter(i))
       .sort((a,z) => prioRank(a.prioridade)-prioRank(z.prioridade) || (a.prazo||"9999").localeCompare(z.prazo||"9999") || a.criado_em-z.criado_em);
     const cards = list.map(cardHtml).join("") || `<div class="empty">Nada aqui.</div>`;
     const ph = c.key==="rascunhos" ? "Anote livremente… (Enter salva, Shift+Enter pula linha)" : c.key==="ideias" ? "Qual a ideia? (Enter para salvar)" : "Título da demanda… (Enter para salvar)";
@@ -85,12 +94,20 @@ function renderKanban(){
   };
   const lat = COLS.filter(c => c.lado === "lateral"), pri = COLS.filter(c => c.lado !== "lateral");
   const ncols = pri.length + (lat.length ? 1 : 0);
+  const total = S.demandas.filter(d => d.status !== FIN).length, shown = S.demandas.filter(d => d.status !== FIN && matchesSearch(d) && matchesFilter(d)).length;
   v.innerHTML = `<div class="kbar"><button class="btn primary" data-act="newD">＋ Nova demanda</button>
-      ${isAdmin() ? `<button class="btn" data-act="cols">⚙ Quadros</button>` : ""}
-      <span class="note">Arraste os cartões entre os quadros · marque as caixinhas para ações em lote</span></div>
+      <div class="ksearch"><span>🔎</span><input id="kSearch" placeholder="Pesquisar no kanban (título, descrição, atualizações, passos)…" value="${esc(S.q||"")}">${S.q ? `<button class="ckb" data-act="kclear" title="Limpar">×</button>` : ""}</div>
+      <select class="fld" id="kFiltro" style="width:auto">${[["todos","Todas"],["alta","Alta prioridade"],["vencido","Com prazo vencido"],["semana","Prazo nos próximos 7 dias"],["semprazo","Sem prazo"]].map(([k,l]) => `<option value="${k}" ${KF.filtro===k?"selected":""}>${l}</option>`).join("")}</select>
+      ${S.q || KF.filtro !== "todos" ? `<span class="note">${shown} de ${total}</span>` : ""}
+      <div class="spacer"></div>
+      ${isOwnSpace() ? `<button class="btn" data-act="cols">⚙ Meus quadros</button>` : ""}</div>
     <div class="board" style="grid-template-columns:repeat(${ncols},minmax(230px,1fr))">${lat.length ? `<div class="stack">${lat.map(colHtml).join("")}</div>` : ""}
     ${pri.map(colHtml).join("")}</div>`;
   if (K.inlineAdd){ const t = $("#inl"); t && t.focus(); }
+  const ks = $("#kSearch");
+  ks.oninput = () => { const pos = ks.selectionStart; S.q = ks.value; $("#search").value = S.q; renderKanban(); const n = $("#kSearch"); n.focus(); n.setSelectionRange(pos, pos); };
+  if (K.kFocus){ ks.focus(); ks.setSelectionRange(ks.value.length, ks.value.length); K.kFocus = false; }
+  $("#kFiltro").onchange = e => { KF.filtro = e.target.value; renderKanban(); };
 }
 function cardHtml(it){
   const notes = (it.historico||[]).filter(h => h.tipo === "nota");
@@ -188,13 +205,14 @@ document.addEventListener("click", async e => {
     if (a==="inlsave"){ saveInline(); return; }
     if (a==="newD"){ openNewDemanda(); return; }
     if (a==="cols"){ openColsEditor(); return; }
+    if (a==="kclear"){ S.q = ""; $("#search").value = ""; K.kFocus = true; renderKanban(); return; }
     if (a==="bclear"){ S.selected.clear(); renderAll(); return; }
     if (a==="bfin"){ const list=[...S.selected]; S.selected.clear(); for (const id of list) await moveD(id, FIN); toast(`${list.length} finalizada(s).`); renderAll(); return; }
     if (a==="bdel"){ const list=[...S.selected]; confirmBox(`Excluir ${list.length} demanda(s)?`, "Elas serão apagadas de vez, junto com o histórico.", "Excluir", async () => { for (const id of list) await deleteD(id); toast("Excluída(s)."); }); return; }
     if (a==="bnote"){ batchNote(); return; }
   }
-  const card = e.target.closest(".card[data-id]"); if (card){ openDemanda(card.dataset.id); return; }
-  const row = e.target.closest("tr[data-open]"); if (row){ openDemanda(row.dataset.open); return; }
+  const card = e.target.closest(".card[data-id]"); if (card){ openDemandaPeek(card.dataset.id); return; }
+  const row = e.target.closest("tr[data-open]"); if (row){ openDemandaPeek(row.dataset.open); return; }
 });
 function saveInline(){
   const t = $("#inl"); if (!t) return;
@@ -431,7 +449,7 @@ function refreshDemandaModal(){
 /* ---------- editor de quadros (admin) ---------- */
 function openColsEditor(){
   let list = COLS.map(c => ({...c}));
-  const counts = {};
+  const counts = {}; S.demandas.forEach(d => counts[d.status] = (counts[d.status] || 0) + 1);
   const draw = () => {
     $("#colList").innerHTML = list.map((c, i) => `<div class="colrow" data-i="${i}">
       <input type="color" value="${c.color}" data-cf="color" title="Cor do quadro">
@@ -440,16 +458,18 @@ function openColsEditor(){
       <div class="acts"><button class="ckb" data-cm="-1" ${i===0?"disabled":""} title="Subir">↑</button><button class="ckb" data-cm="1" ${i===list.length-1?"disabled":""} title="Descer">↓</button>
       <button class="ckb del" data-cdel title="Excluir quadro${counts[c.key]?` (tem ${counts[c.key]} demanda(s))`:""}">×</button></div></div>`).join("");
   };
-  const ov = overlay(`<div class="mhead"><div class="mt">⚙ Quadros do kanban</div><button class="x" data-close>×</button></div>
+  const ov = overlay(`<div class="mhead"><div class="mt">⚙ Meus quadros do kanban</div><button class="x" data-close>×</button></div>
     <div class="mbody">
-      <p class="note" style="margin:0 0 10px">Os quadros valem para toda a equipe. Renomeie, mude a cor, a ordem e onde aparecem. "Coluna lateral" empilha o quadro na primeira coluna (como Ideias, Rascunhos e Stand by).</p>
+      <p class="note" style="margin:0 0 10px">Monte o seu kanban do seu jeito: crie, renomeie, mude a cor, a ordem e onde cada quadro aparece. Isso vale só para você e não muda o kanban das outras pessoas. "Coluna lateral" empilha o quadro na primeira coluna (como Ideias, Rascunhos e Stand by).</p>
       <div id="colList"></div>
       <button class="btn sm" id="colAdd" style="margin-top:10px">＋ Novo quadro</button>
+      ${isAdmin() ? `<label class="chk" style="margin-top:14px"><input type="checkbox" id="colDef"> Usar também como modelo padrão para quem ainda não personalizou</label>` : ""}
+      ${prefs().colunas ? `<div style="margin-top:10px"><button class="btn sm ghost" id="colReset">Voltar ao modelo padrão da equipe</button></div>` : ""}
       <div class="err" id="colErr" style="margin-top:10px"></div>
     </div>
     <div class="mfoot"><span class="note">"Finalizado" é fixo e fica na aba Finalizadas.</span><div class="spacer"></div><button class="btn" data-close>Cancelar</button><button class="btn primary" id="colSave">Salvar quadros</button></div>`, "mid", { dirty: () => true });
   draw();
-  API.rpc("contar_por_status").then(r => { (r||[]).forEach(x => counts[x.status] = +x.total); draw(); }).catch(() => {});
+
   ov.addEventListener("input", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
   ov.addEventListener("change", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
   ov.addEventListener("click", e => {
@@ -458,20 +478,25 @@ function openColsEditor(){
     if (mv){ const j = i + (+mv.dataset.cm); if (j < 0 || j >= list.length) return; [list[i], list[j]] = [list[j], list[i]]; draw(); return; }
     if (e.target.closest("[data-cdel]")){
       const c = list[i], n = counts[c.key] || 0;
-      if (n){ $("#colErr").textContent = `"${c.label}" tem ${n} demanda(s) (somando toda a equipe). Mova essas demandas para outro quadro antes de excluir.`; return; }
+      if (n){ $("#colErr").textContent = `"${c.label}" tem ${n} demanda(s). Mova essas demandas para outro quadro antes de excluir.`; return; }
       if (list.length <= 1){ $("#colErr").textContent = "Precisa existir pelo menos um quadro."; return; }
       list.splice(i, 1); draw(); return;
     }
   });
   $("#colAdd").onclick = () => { list.push({ key: "q_" + Math.random().toString(36).slice(2, 8), label: "Novo quadro", color: CORES[list.length % CORES.length], lado: "principal" }); draw();
     const ins = $$("#colList [data-cf=label]"); const last = ins[ins.length-1]; last.focus(); last.select(); };
+  const rs = $("#colReset"); if (rs) rs.onclick = async () => { const p = prefs(); delete p.colunas; await savePrefs(p); applySpaceCols(); closeModal(true); renderAll(); toast("Voltou ao modelo padrão."); };
   $("#colSave").onclick = async () => {
     const err = $("#colErr"); err.textContent = "";
     list.forEach(c => c.label = (c.label||"").trim());
     if (list.some(c => !c.label)){ err.textContent = "Todo quadro precisa de um nome."; return; }
     if (!list.some(c => c.lado !== "lateral")){ err.textContent = "Deixe pelo menos um quadro na área principal."; return; }
     $("#colSave").disabled = true;
-    try { await API.setConfig("colunas", list); setCols(list); closeModal(true); renderAll(); toast("Quadros atualizados para toda a equipe."); }
+    try {
+      const p = prefs(); p.colunas = list; await savePrefs(p);
+      if ($("#colDef") && $("#colDef").checked){ await API.setConfig("colunas", list); S.globalCols = list; }
+      applySpaceCols(); closeModal(true); renderAll(); toast("Seus quadros foram atualizados.");
+    }
     catch(ex){ err.textContent = errMsg(ex); $("#colSave").disabled = false; }
   };
 }
@@ -528,5 +553,49 @@ document.addEventListener("click", async e => {
   e.stopPropagation();
   const id = c.dataset.stale, dono = c.dataset.dono;
   if (dono !== S.space){ await setSpace(dono); }
-  openDemanda(id);
+  openDemandaPeek(id);
 }, true);
+
+/* ---------- visualização rápida (estilo Google Agenda) ---------- */
+function openDemandaPeek(id){
+  const it = getD(id); if (!it) return;
+  const c = COLS.find(x => x.key === it.status) || { label: colLabel(it.status), color: "#8a94a6" };
+  const cl = it.checklist || [], pend = cl.filter(x => !x.feito);
+  const notes = (it.historico||[]).filter(h => h.tipo === "nota").slice(-3).reverse();
+  const ov = overlay(`<div class="peek-bar" style="background:${c.color}"></div>
+    <div class="mhead" style="align-items:center"><div class="mt">${esc(it.titulo)}</div>
+      <button class="x" data-pk="edit" title="Abrir para editar">✏️</button><button class="x" data-pk="del" title="Excluir">🗑</button><button class="x" data-close title="Fechar">×</button></div>
+    <div class="mbody">
+      <div class="cmeta" style="margin:0 0 12px">
+        <span class="tag"><span class="dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${esc(c.label)}</span>
+        ${it.prioridade === "alta" ? `<span class="tag high">Alta prioridade</span>` : ""}
+        ${prazoTag(it.prazo, it.status) || (it.prazo ? `<span class="tag">Prazo ${fmtYmd(it.prazo)}</span>` : `<span class="tag">Sem prazo</span>`)}
+        <span class="tag">⏳ ${idleDays(it)} dia(s) sem movimento</span>
+      </div>
+      ${it.descricao ? `<div style="white-space:pre-wrap;line-height:1.5;margin-bottom:12px">${esc(it.descricao)}</div>` : ""}
+      ${cl.length ? `<div class="section" style="margin-top:6px"><h3>✅ Checklist · ${cl.length - pend.length}/${cl.length}</h3>
+        ${cl.map(x => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pkck="${x.id}" ${x.feito?"checked":""}> <span style="${x.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(x.texto)}</span>${x.prazo && !x.feito ? `<span class="tag ${x.prazo < todayYmd() ? "late" : ""}" style="margin-left:auto">⏰ ${fmtYmd(x.prazo)}</span>` : ""}</label>`).join("")}</div>` : ""}
+      <div class="section"><h3>💬 Últimas atualizações</h3>
+        ${notes.length ? notes.map(n => `<div class="lastupd" style="border-top:0;padding-top:0;-webkit-line-clamp:3"><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
+        <div class="upd" style="margin-top:8px"><input class="fld" id="pkNote" placeholder="Registrar andamento rápido… (Enter)"><button class="btn sm primary" data-pk="note">Registrar</button></div></div>
+      <div class="dates"><div><b>Cadastro</b>${fmt(it.criado_em)}</div><div><b>Última modificação</b>${fmt(it.atualizado_em)}</div>${it.finalizado_em ? `<div><b>Finalização</b>${fmt(it.finalizado_em)}</div>` : ""}</div>
+    </div>
+    <div class="mfoot"><select class="fld" id="pkMove" style="width:auto"><option value="">Mover para…</option>${COLS.filter(x => x.key !== it.status).map(x => `<option value="${x.key}">${esc(x.label)}</option>`).join("")}</select>
+      <div class="spacer"></div>${it.status !== FIN ? `<button class="btn ok" data-pk="fin">✓ Finalizar</button>` : `<button class="btn" data-pk="reopen">↺ Reabrir</button>`}
+      <button class="btn primary" data-pk="edit">✏️ Editar</button></div>`, "mid peek");
+  ov.addEventListener("click", e => {
+    const b = e.target.closest("[data-pk]"); const ck = e.target.closest("[data-pkck]");
+    if (ck){ const cid = ck.dataset.pkck, feito = ck.checked, item = cl.find(x => x.id === cid);
+      updateD(id, d => { const x = d.checklist.find(y => y.id === cid); x.feito = feito; x.feitoEm = feito ? Date.now() : null;
+        d.historico.push(actorTag({tipo:"check", em:Date.now(), texto:(feito?"Passo concluído: ":"Passo reaberto: ") + item.texto})); });
+      openDemandaPeek(id); return; }
+    if (!b) return; const a = b.dataset.pk;
+    if (a === "edit"){ closeModal(true); openDemanda(id); }
+    if (a === "del") confirmBox("Excluir esta demanda?", `"${it.titulo}" será apagada de vez, junto com o histórico.`, "Excluir", async () => { closeModal(true); await deleteD(id); toast("Demanda excluída."); });
+    if (a === "note"){ const v = $("#pkNote").value.trim(); if (!v) return; addNoteD(id, v); toast("Atualização registrada."); openDemandaPeek(id); }
+    if (a === "fin"){ moveD(id, FIN); closeModal(true); toast("Demanda finalizada — está em Finalizadas."); }
+    if (a === "reopen"){ moveD(id, firstMain()); openDemandaPeek(id); }
+  });
+  $("#pkNote").addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); ov.querySelector('[data-pk="note"]').click(); } });
+  $("#pkMove").onchange = e => { const to = e.target.value; if (!to) return; moveD(id, to); toast(`Movida para "${colLabel(to)}".`); openDemandaPeek(id); };
+}

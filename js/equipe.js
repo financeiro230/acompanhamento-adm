@@ -76,6 +76,8 @@ function memberModal(p){
         <div><label class="f">Tipo de acesso</label><select class="fld" id="mbR"><option value="membro" ${!p||p.papel==="membro"?"selected":""}>Membro (vê só o seu)</option><option value="admin" ${p&&p.papel==="admin"?"selected":""}>Administrador (vê todos)</option></select></div>
         ${novo ? "" : `<div><label class="f">Situação</label><select class="fld" id="mbA"><option value="1" ${p.ativo?"selected":""}>Ativo</option><option value="0" ${!p.ativo?"selected":""}>Desativado (sem acesso)</option></select></div>`}
       </div>
+      <div class="section"><label class="f">E-mail Google (para integrar a agenda)</label><input class="fld" id="mbG" type="email" placeholder="nome@unigameslojas.com" value="${esc(p && p.google_email || "")}">
+        <p class="note" style="margin:4px 0 0">É preenchido sozinho quando a pessoa conecta o Google. Serve para convidá-la nos eventos com Meet e para ver a agenda dela.</p></div>
       <div class="section"><label class="chk"><input type="checkbox" id="mbAtr" ${p && p.pode_atribuir ? "checked" : ""}> Pode atribuir missões e eventos para outras pessoas da equipe</label>
         <p class="note" style="margin:4px 0 0">A pessoa passa a ver a lista de nomes da equipe para escolher em "Para quem" e acompanha o que atribuiu. Ela continua sem ver a agenda ou o kanban dos outros. Administradores já podem.</p></div>
       <div class="section"><label class="f">Cor</label>${swatchesHtml(p ? p.cor : CORES[(S.perfis.length) % CORES.length])}</div>
@@ -102,13 +104,15 @@ function memberModal(p){
         const id = await API.rpc("admin_criar_usuario", { p_usuario: usuario, p_senha: senha, p_nome: nome, p_papel: papel });
         if (cor) await API.rpc("admin_atualizar_perfil", { p_id: id, p_nome: nome, p_papel: papel, p_ativo: true, p_cor: cor });
         if ($("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: id, p_valor: true });
+        if ($("#mbG").value.trim()) await API.rpc("admin_definir_google_email", { p_id: id, p_email: $("#mbG").value.trim() });
         closeModal(true); toast(`Acesso criado para ${nome}. Usuário: ${usuario}`);
       } else {
         await API.rpc("admin_atualizar_perfil", { p_id: p.id, p_nome: nome, p_papel: papel, p_ativo: $("#mbA").value === "1", p_cor: cor });
         if (!!p.pode_atribuir !== $("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: p.id, p_valor: $("#mbAtr").checked });
+        if ((p.google_email || "") !== $("#mbG").value.trim().toLowerCase()) await API.rpc("admin_definir_google_email", { p_id: p.id, p_email: $("#mbG").value.trim() });
         closeModal(true); toast("Salvo.");
       }
-      S.all = null; await reloadPerfis(); renderEquipe();
+      S.all = null; await reloadPerfis(); loadEquipeGoogle(); renderEquipe();
     } catch(ex){ err.textContent = errMsg(ex); $("#mbOk").disabled = false; }
   });
 }

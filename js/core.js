@@ -26,6 +26,10 @@ function setCols(list){
 }
 setCols(null);
 const firstMain = () => (COLS.find(c => c.lado !== "lateral") || COLS[0]).key;
+function applySpaceCols(){
+  const p = S.perfis.find(x => x.id === S.space);
+  setCols((p && p.preferencias && Array.isArray(p.preferencias.colunas) && p.preferencias.colunas.length) ? p.preferencias.colunas : S.globalCols);
+}
 const colLabel = k => LABEL[k] || "Quadro removido";
 const CORES = ["#2f5bea","#1f9d61","#d23b3b","#d98a00","#8a3ffc","#0891b2","#db2777","#5b6b8c","#65a30d","#ea580c"];
 
@@ -113,6 +117,8 @@ const S = {
   eventos: [],
   all: null,         // {demandas, eventos} para visão de equipe (admin)
   equipe: [],        // lista básica da equipe (para quem pode atribuir)
+  q: "",             // texto da busca
+  globalCols: null,  // modelo de quadros da equipe (admin)
   atribuidas: [],    // compromissos que eu criei para outras pessoas
   view: "agenda",
   selected: new Set(),

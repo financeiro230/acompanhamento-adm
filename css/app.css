@@ -420,3 +420,17 @@ a.btn{text-decoration:none;color:inherit} a.btn.primary{color:#fff}
 .ckdl.late{color:var(--danger)}
 
 #v-parados{padding:14px 16px}
+
+.ksearch{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 6px 0 10px;flex:1;min-width:220px;max-width:520px}
+.ksearch:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.ksearch input{border:0;outline:none;background:transparent;padding:9px 4px;flex:1;min-width:0}
+.modal.peek{max-width:520px;overflow:hidden}
+.peek-bar{height:6px}
+.peek .mhead .x{font-size:17px}
+
+.wdpick{display:flex;gap:6px;flex-wrap:wrap}
+.wdpick button{border:1px solid var(--line);background:var(--panel);border-radius:20px;padding:6px 12px;font-weight:500}
+.wdpick button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.meetbox{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--soft);margin:6px 0;flex-wrap:wrap}
+.meetbox a:not(.btn){color:var(--accent);font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filt b{display:block;margin-bottom:2px} .filt .chk{display:flex}

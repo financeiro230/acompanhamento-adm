@@ -3,7 +3,7 @@
 
 function renderAll(){
   $("#finCount").textContent = S.demandas.filter(d => d.status === FIN).length;
-  $("#search").classList.toggle("hidden", !["kanban","finalizadas","parados"].includes(S.view));
+  $("#search").classList.toggle("hidden", !["finalizadas","parados"].includes(S.view));
   $("#stCount").textContent = staleList(S.demandas, ST.min, ST.extras).length;
   if (S.view === "agenda") renderAgenda();
   else if (S.view === "kanban") renderKanban();
@@ -52,7 +52,7 @@ async function reloadSpace(showSpin){
     if (S.view === "parados" && ST.scope === "team") S.all = null;
     const [d, e, cols, atr] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null),
       canAssign() ? API.listBy("eventos", "criado_por", S.me.id).catch(() => []) : Promise.resolve([])]);
-    S.demandas = d; S.eventos = e; if (cols) setCols(cols);
+    S.demandas = d; S.eventos = e; S.globalCols = cols; applySpaceCols();
     S.atribuidas = atr.filter(x => x.dono !== S.me.id);
     if (showSpin) $("#saving").textContent = "";
     if (!modalOpen() || K.openId) renderAll();
@@ -72,6 +72,7 @@ async function startApp(uid){
   S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
   applyTheme(prefs()); gRestore();
   if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
+  loadEquipeGoogle();
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
   let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); if (s && S.perfis.find(p => p.id === s)) sp = s; } catch {}
   S.space = sp;
@@ -125,6 +126,7 @@ $("#lgEye").addEventListener("click", () => { const i = $("#lgPass"); i.type = i
 /* ---------- preferências ---------- */
 async function savePrefs(p){
   S.me.preferencias = p; applyTheme(p);
+  const mine = S.perfis.find(x => x.id === S.me.id); if (mine && mine !== S.me) mine.preferencias = p;
   try { await API.rpc("salvar_preferencias", { p }); } catch(e){ console.error(e); toast("Não foi possível salvar suas preferências: " + errMsg(e), true); }
 }
 function openAparencia(){
@@ -177,7 +179,7 @@ $("#meBtn").addEventListener("click", () => {
 });
 $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
 $("#spaceSel").addEventListener("change", e => setSpace(e.target.value));
-$("#search").addEventListener("input", () => renderAll());
+$("#search").addEventListener("input", e => { S.q = e.target.value; renderAll(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && modalOpen()) closeModal(); });
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","parados","finalizadas","equipe"].includes(h)) setView(h); });
 
