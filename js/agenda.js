@@ -121,11 +121,31 @@ function toggleDone(id, date){
 }
 
 /* ---------- render ---------- */
+function mobAgBar(){
+  const c = A.cursor, today = todayYmd();
+  if (A.mode === "lista") return `<div class="ag-bar mob"><button class="btn ghost sbtoggle" data-ag="side">☰</button><button class="btn" data-ag="mback">‹ Voltar para o dia</button><h2 class="mtitle">${A.mobLate ? "Atrasadas e próximos dias" : "Próximos dias"}</h2></div>`;
+  const ws = weekStart(c), has = new Set(instances(ymd(ws), ymd(addDays(ws, 6))).filter(i => !i.done).map(i => i.date));
+  const title = cap(c.toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" })).replace(/\./g, "");
+  return `<div class="ag-bar mob">
+      <button class="btn ghost sbtoggle" data-ag="side" title="Menu">☰</button>
+      <button class="btn ghost nav" data-ag="prev" title="Dia anterior">‹</button>
+      <h2 class="mtitle">${esc(title)}</h2>
+      <button class="btn ghost nav" data-ag="next" title="Próximo dia">›</button>
+      ${ymd(c) !== today ? `<button class="btn sm" data-ag="today">Hoje</button>` : ""}
+    </div>
+    <div class="mstrip">${[...Array(7)].map((_, i) => { const d = addDays(ws, i), k = ymd(d);
+      return `<button data-goto="${k}" class="${k === ymd(c) ? "on" : ""} ${k === today ? "today" : ""}"><small>${WD[d.getDay()].slice(0, 3)}</small><b>${d.getDate()}</b><i class="${has.has(k) ? "has" : ""}"></i></button>`; }).join("")}</div>`;
+}
+const isMob = () => window.matchMedia("(max-width:900px)").matches;
 function renderAgenda(){
   const v = $("#v-agenda");
+  const mob = isMob();
+  if (mob) A.mode = A.mobList ? "lista" : "dia";
+  v.classList.toggle("mob", mob);
+  if (mob) document.documentElement.style.setProperty("--hdrh", ($("header").offsetHeight + ($("#spaceBanner").offsetHeight || 0)) + "px");
   v.innerHTML = `<aside class="ag-side ${prefs().sidebar===false?"closed":""} ${A.sideOpen?"open":""}" id="agSide"></aside><div class="ag-scrim" data-ag="side"></div>
     <div class="ag-main">
-      <div class="ag-bar">
+      ${mob ? mobAgBar() : `<div class="ag-bar">
         <button class="btn ghost sbtoggle" data-ag="side" title="Mostrar/esconder menu lateral">☰</button>
         <button class="btn primary" data-ag="new">＋ Criar</button>
         <button class="btn" data-ag="today">Hoje</button>
@@ -135,8 +155,9 @@ function renderAgenda(){
         <div class="spacer"></div>
         <button class="btn" data-ag="io" title="Exportar ou importar agenda">⇅ <span class="hide-sm">Exportar / importar</span></button>
         <div class="seg">${[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"]].map(([k,l]) => `<button data-mode="${k}" class="${A.mode===k?"on":""}">${l}</button>`).join("")}</div>
-      </div>
+      </div>`}
       <div class="ag-body" id="agBody"></div>
+      ${mob ? `<button class="fab" data-ag="new" title="Criar compromisso">＋</button>` : ""}
     </div>`;
   renderSide();
   const body = $("#agBody");
@@ -146,10 +167,16 @@ function renderAgenda(){
     body.innerHTML = weekHtml(A.mode === "dia" ? 1 : 7);
     const key = A.mode + ymd(A.cursor);
     const allRow = body.querySelector(".wk-all"); const head = body.querySelector(".wk-head");
-    if (allRow && head) allRow.style.top = head.offsetHeight + "px";
+    if (allRow && head) allRow.style.top = (mob ? 0 : head.offsetHeight) + "px";
     const H7 = 7 * (parseInt(getComputedStyle(document.documentElement).getPropertyValue("--hour")) || 48);
     if (A.scrollKey !== key){ A.scrollKey = key; A.lastScroll = H7; }
     body.scrollTop = A.lastScroll ?? H7;
+  }
+  if (mob && A.mode === "dia"){
+    let sx = null, sy = 0;
+    body.addEventListener("touchstart", e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    body.addEventListener("touchend", e => { if (sx === null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+      if (Math.abs(dx) > 70 && Math.abs(dy) < 45){ A.cursor = addDays(A.cursor, dx < 0 ? 1 : -1); renderAgenda(); } }, { passive: true });
   }
   gEnsure();
   body.onscroll = () => { if (A.mode === "semana" || A.mode === "dia") A.lastScroll = body.scrollTop; };
@@ -201,7 +228,8 @@ function renderSide(){
       ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
     ${gSideHtml()}
-    <p class="note">Dica: clique num horário vazio para criar um compromisso ali.</p>`;
+    ${isMob() ? `<button class="btn" data-ag="io" style="width:100%">⇅ Exportar / importar agenda</button>
+    <p class="note">Dica: arraste a agenda para o lado para trocar de dia, ou toque num horário vazio para criar um compromisso ali.</p>` : `<p class="note">Dica: clique num horário vazio para criar um compromisso ali.</p>`}`;
 }
 
 function chipHtml(i){
@@ -257,7 +285,7 @@ function weekHtml(nDays){
   const days = [...Array(nDays)].map((_, i) => addDays(start, i));
   const from = ymd(days[0]), to = ymd(days[nDays-1]), today = todayYmd();
   const inst = instances(from, to);
-  const cols = `56px repeat(${nDays}, minmax(0,1fr))`;
+  const cols = `${isMob() ? 42 : 56}px repeat(${nDays}, minmax(0,1fr))`;
   const head = `<div class="wk-head" style="grid-template-columns:${cols}"><div class="lbl"></div>${days.map(d => `<div class="hd ${ymd(d)===today?"today":""}" data-goto="${ymd(d)}" data-mode-to="dia"><small>${WD[d.getDay()]}</small><b>${d.getDate()}</b></div>`).join("")}</div>`;
   const allRow = `<div class="wk-all" style="grid-template-columns:${cols}"><div class="lbl">dia todo</div>${days.map(d => { const k = ymd(d);
       return `<div class="ad" data-allday="${k}">${inst.filter(i => i.date===k && i.allDay).map(chipHtml).join("")}</div>`; }).join("")}</div>`;
@@ -318,7 +346,7 @@ document.addEventListener("click", e => {
   const inst = t.closest("[data-inst]");
   if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else if (k === "t") gOpenEvent(id.split("~")[1], date, decodeURIComponent(id.split("~")[0])); else openEventoPeek(id, date); return; }
   const go = t.closest("[data-goto]");
-  if (go){ A.sideOpen = false; A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
+  if (go){ A.sideOpen = false; A.mobList = false; A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
   const md = t.closest("[data-mode]"); if (md){ A.mode = md.dataset.mode; renderAgenda(); return; }
   const ag = t.closest("[data-ag]");
   if (ag){
@@ -336,8 +364,9 @@ document.addEventListener("click", e => {
       else if (A.mode === "dia") A.cursor = addDays(c, s);
       else A.cursor = addDays(c, 30*s); }
     if (a === "mprev" || a === "mnext") A.cursor = new Date(c.getFullYear(), c.getMonth() + (a==="mprev"?-1:1), 1);
-    if (a === "gotoday"){ A.cursor = new Date(); A.mode = "dia"; }
-    if (a === "golist" || a === "golate"){ A.mode = "lista"; }
+    if (a === "gotoday"){ A.cursor = new Date(); A.mode = "dia"; A.mobList = false; }
+    if (a === "golist" || a === "golate"){ A.mode = "lista"; A.mobList = true; A.mobLate = a === "golate"; }
+    if (["today","prev","next","mback"].includes(a)){ A.mobList = false; if (a === "mback") A.mode = "dia"; }
     if (a !== "new") renderAgenda();
     if (a === "golate"){ const el = $("#agLate"); el && el.scrollIntoView({behavior:"smooth"}); }
     return;
@@ -844,3 +873,6 @@ function openAtribuidas(){
     const it = e.target.closest("[data-atr]"); if (it){ closeModal(true); openEvento(it.dataset.atr); }
   });
 }
+
+/* ao girar o celular / redimensionar entre celular e computador */
+window.matchMedia("(max-width:900px)").addEventListener("change", () => { if (S.me && ["agenda","kanban"].includes(S.view) && !modalOpen()) renderAll(); });

@@ -95,21 +95,28 @@ function renderKanban(){
       <div class="cards">${cards}</div>${add}</section>`;
   };
   const lat = COLS.filter(c => c.lado === "lateral"), pri = COLS.filter(c => c.lado !== "lateral");
+  const mob = isMob();
+  if (mob && !COLS.find(c => c.key === K.mcol)) K.mcol = firstMain();
+  const cnt = c => S.demandas.filter(i => i.status === c.key && matchesSearch(i) && matchesFilter(i)).length;
+  const mobCols = () => `<div class="mcols">${[...pri, ...lat].map(c => `<button data-mcol="${c.key}" class="${K.mcol === c.key ? "on" : ""}"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}<b>${cnt(c)}</b></button>`).join("")}</div>
+    <div class="board mob">${colHtml(COLS.find(c => c.key === K.mcol))}</div>`;
   const ncols = pri.length + (lat.length ? 1 : 0);
   const total = S.demandas.filter(d => d.status !== FIN).length, shown = S.demandas.filter(d => d.status !== FIN && matchesSearch(d) && matchesFilter(d)).length;
   v.innerHTML = `<div class="kbar"><button class="btn primary" data-act="newD">＋ Nova demanda</button>
-      <div class="ksearch"><span>🔎</span><input id="kSearch" placeholder="Pesquisar no kanban (título, descrição, atualizações, passos)…" value="${esc(S.q||"")}">${S.q ? `<button class="ckb" data-act="kclear" title="Limpar">×</button>` : ""}</div>
+      <div class="ksearch"><span>🔎</span><input id="kSearch" placeholder="${isMob() ? "Pesquisar demandas…" : "Pesquisar no kanban (título, descrição, atualizações, passos)…"}" value="${esc(S.q||"")}">${S.q ? `<button class="ckb" data-act="kclear" title="Limpar">×</button>` : ""}</div>
       <select class="fld" id="kFiltro" style="width:auto">${[["todos","Todas as demandas"],["p_alta","▲ Prioridade alta"],["p_media","◆ Prioridade média"],["p_baixa","▼ Prioridade baixa"],["vencido","Com prazo vencido"],["semana","Prazo nos próximos 7 dias"],["semprazo","Sem prazo"]].map(([k,l]) => `<option value="${k}" ${KF.filtro===k?"selected":""}>${l}</option>`).join("")}</select>
       ${S.q || KF.filtro !== "todos" ? `<span class="note">${shown} de ${total}</span>` : ""}
       <div class="spacer"></div>
-      ${isOwnSpace() ? `<button class="btn" data-act="cols">⚙ Meus quadros</button>` : ""}</div>
-    <div class="board" style="grid-template-columns:repeat(${ncols},minmax(230px,1fr))">${lat.length ? `<div class="stack">${lat.map(colHtml).join("")}</div>` : ""}
-    ${pri.map(colHtml).join("")}</div>`;
+      ${isOwnSpace() ? `<button class="btn" data-act="cols" title="Meus quadros">⚙<span class="hide-sm"> Meus quadros</span></button>` : ""}</div>
+    ${mob ? mobCols() : `<div class="board" style="grid-template-columns:repeat(${ncols},minmax(230px,1fr))">${lat.length ? `<div class="stack">${lat.map(colHtml).join("")}</div>` : ""}
+    ${pri.map(colHtml).join("")}</div>`}`;
   if (K.inlineAdd){ const t = $("#inl"); t && t.focus(); }
   const ks = $("#kSearch");
   ks.oninput = () => { const pos = ks.selectionStart; S.q = ks.value; $("#search").value = S.q; renderKanban(); const n = $("#kSearch"); n.focus(); n.setSelectionRange(pos, pos); };
   if (K.kFocus){ ks.focus(); ks.setSelectionRange(ks.value.length, ks.value.length); K.kFocus = false; }
   $("#kFiltro").onchange = e => { KF.filtro = e.target.value; renderKanban(); };
+  $$("[data-mcol]").forEach(b => b.onclick = () => { K.mcol = b.dataset.mcol; renderKanban(); });
+  const mc = $(".mcols .on"); if (mc) mc.scrollIntoView({ block: "nearest", inline: "center" });
 }
 function cardHtml(it){
   const notes = (it.historico||[]).filter(h => h.tipo === "nota");
