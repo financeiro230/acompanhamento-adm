@@ -613,3 +613,4 @@ body:not([data-t=claro]) .ncard,body:not([data-t=claro]) .nedit{background:color
   .board.mob .cards{gap:10px}
   .board.mob .card .ctitle{font-size:15px}
 }
+.ag-bar .btn.on-off{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}

@@ -132,6 +132,7 @@ function mobAgBar(){
       <h2 class="mtitle">${esc(title)}</h2>
       <button class="btn ghost nav" data-ag="next" title="Próximo dia">›</button>
       ${ymd(c) !== today ? `<button class="btn sm" data-ag="today">Hoje</button>` : ""}
+      <button class="btn sm ghost" data-ag="concl" title="${showDoneMissions() ? "Ocultar concluídas" : "Mostrar concluídas"}">${showDoneMissions() ? "👁" : "🙈"}</button>
     </div>
     <div class="mstrip">${[...Array(7)].map((_, i) => { const d = addDays(ws, i), k = ymd(d);
       return `<button data-goto="${k}" class="${k === ymd(c) ? "on" : ""} ${k === today ? "today" : ""}"><small>${WD[d.getDay()].slice(0, 3)}</small><b>${d.getDate()}</b><i class="${has.has(k) ? "has" : ""}"></i></button>`; }).join("")}</div>`;
@@ -153,6 +154,7 @@ function renderAgenda(){
         <button class="btn ghost" data-ag="next" title="Próximo">›</button>
         <h2>${esc(cap(agTitle()))}</h2>
         <div class="spacer"></div>
+        <button class="btn ${showDoneMissions() ? "" : "on-off"}" data-ag="concl" title="Mostrar ou esconder as missões já concluídas">${showDoneMissions() ? "👁 Ocultar concluídas" : "🙈 Mostrar concluídas"}</button>
         <button class="btn" data-ag="io" title="Exportar ou importar agenda">⇅ <span class="hide-sm">Exportar / importar</span></button>
         <div class="seg">${[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"]].map(([k,l]) => `<button data-mode="${k}" class="${A.mode===k?"on":""}">${l}</button>`).join("")}</div>
       </div>`}
@@ -356,6 +358,8 @@ document.addEventListener("click", e => {
     if (!["mprev","mnext"].includes(a)) A.sideOpen = false;
     if (a === "side"){ const p = prefs(); p.sidebar = p.sidebar === false; savePrefs(p); $("#agSide").classList.toggle("closed", p.sidebar === false); return; }
     if (a === "io"){ openIO(); return; }
+    if (a === "concl"){ const v = !showDoneMissions(); A.filt.concl = v; const p = prefs(); p.agConcluidas = v; savePrefs(p); renderAgenda();
+      toast(v ? "Missões concluídas aparecem na agenda." : "Missões concluídas escondidas da agenda."); return; }
     if (a === "atrib"){ openAtribuidas(); return; }
     if (a === "today") A.cursor = new Date();
     if (a === "prev" || a === "next"){ const s = a === "prev" ? -1 : 1;
