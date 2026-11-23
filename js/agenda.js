@@ -476,7 +476,7 @@ function openEventoPeek(id, date){
     <div class="mhead" style="align-items:center"><div class="mt">${ev.tipo === "missao" ? "🎯" : "📅"} ${esc(ev.titulo)}</div>
       <button class="x" data-pe="edit" title="Editar">✏️</button><button class="x" data-pe="del" title="Excluir">🗑</button><button class="x" data-close title="Fechar">×</button></div>
     <div class="mbody">
-      <div style="margin-bottom:6px">🕒 ${esc(when)}${ev.prioridade ? " " + prioTag(ev.prioridade, true) : ""}</div>
+      <div style="margin-bottom:6px">🕒 ${esc(when)}${prioTag(ev.prioridade, true) ? " " + prioTag(ev.prioridade, true) : ""}</div>
       ${recText(ev) ? `<div class="note" style="margin-bottom:6px">↻ ${esc(recText(ev))}</div>` : ""}
       ${ev.tipo === "missao" && ev.recorrencia === "nenhuma" && ev.data_fim ? `<div style="margin-bottom:6px">⏰ Prazo final: ${fmtYmd(ev.data_fim,{day:"2-digit",month:"2-digit",year:"numeric"})}</div>` : ""}
       ${ev.local ? `<div style="margin-bottom:6px">📍 ${esc(ev.local)}</div>` : ""}
@@ -587,7 +587,7 @@ function openEvento(id, pre = {}, dateCtx = null){
       <div class="section"><label class="f">📎 Anexos</label>${anexosHtml("e", ev.id)}</div>`
         : `<p class="note section">💬 Atualizações e 📎 anexos ficam disponíveis depois de salvar o compromisso.</p>`}
       ${(!ev ? S.space === S.me.id : (ev.dono === S.me.id && !ev.grupo)) ? `<div class="section"><label class="chk"><input type="checkbox" id="evPes" ${d.pessoal ? "checked" : ""}> 🔒 <b>Pessoal</b> — só você vê (não aparece para administradores nem para quem atribui)</label></div>` : ""}
-      <div class="section"><label class="f">Prioridade</label><select class="fld" id="evPri" style="max-width:220px"><option value="">— Sem prioridade</option>${Object.keys(PRIO).map(k => `<option value="${k}" ${d.prioridade === k ? "selected" : ""}>${PRIO[k].i} ${PRIO[k].l}</option>`).join("")}</select></div>
+      <div class="section"><label class="f">Prioridade</label><select class="fld" id="evPri" style="max-width:220px">${prioOpts(d.prioridade)}</select></div>
       ${ev ? evPessoasHtml(ev) : ""}
       <div class="section"><label class="f">Cor</label><div id="evCorBox">${swatchesHtml(d.cor, "cor", defColor(d.tipo))}</div>
         <p class="note" style="margin:6px 0 0">A primeira opção (quadriculada) segue a cor padrão, que você muda em 🎨 Aparência. As outras deixam a cor fixa.</p></div>
@@ -720,7 +720,7 @@ function openEvento(id, pre = {}, dateCtx = null){
     await Promise.all(rows.map(r => persist("eventos", r)));
     if (ev && ev.grupo){
       const c = { titulo, descricao: base.descricao, tipo, data, data_fim: base.data_fim, hora_inicio: hi, hora_fim: hf, local: base.local, recorrencia: recV, recorrencia_ate: ra,
-        rec_dias: base.rec_dias, rec_datas: base.rec_datas, checklist: base.checklist, meet_link: rows[0].meet_link, google_id: rows[0].google_id, nota: "Editado" };
+        rec_dias: base.rec_dias, rec_datas: base.rec_datas, checklist: base.checklist, prioridade: base.prioridade || "", meet_link: rows[0].meet_link, google_id: rows[0].google_id, nota: "Editado" };
       if ("conclusao_conjunta" in base) c.conclusao_conjunta = base.conclusao_conjunta;
       await API.rpc("grupo_sync", { g: ev.grupo, c }).catch(e => toast("Não foi possível atualizar para todos: " + errMsg(e), true));
     }

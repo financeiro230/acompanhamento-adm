@@ -163,11 +163,51 @@ function openNotaView(id){
     if (a === "del") delNota(id);
   });
 }
-function labelsEditorHtml(sel){
-  const todas = notaLabels();
-  return `<div class="nlabedit"><div class="nlabels" id="nLabs">${sel.map(l => `<span class="nlabel">🏷 ${esc(l)}<button type="button" data-nlrm="${esc(l)}" title="Tirar">×</button></span>`).join("")}</div>
-    <div class="nlabadd"><input class="fld" id="nLabIn" list="nLabList" placeholder="🏷 Adicionar marcador (Enter)" maxlength="40"><datalist id="nLabList">${todas.map(l => `<option value="${esc(l)}">`).join("")}</datalist></div></div>`;
+const labelsAll = () => [...new Set([...(prefs().marcadores || []), ...notaLabels()])].sort((a, z) => a.localeCompare(z, "pt-BR"));
+function labelCriar(v){ const p = prefs(); const l = p.marcadores || []; if (!l.some(x => x.toLowerCase() === v.toLowerCase())){ p.marcadores = [...l, v]; savePrefs(p); } }
+function labelsEditorHtml(sel, aberto, q){
+  const qq = (q || "").trim().toLowerCase(), todas = labelsAll().filter(l => !qq || l.toLowerCase().includes(qq));
+  const existe = labelsAll().some(l => l.toLowerCase() === qq);
+  return `<div class="nlabedit"><div class="nlabels">${sel.map(l => `<span class="nlabel">🏷 ${esc(l)}<button type="button" data-nlrm="${esc(l)}" title="Tirar">×</button></span>`).join("")}
+      <button type="button" class="nlabel ghostl ${aberto ? "on" : ""}" data-nlopen>🏷 ${sel.length ? "Marcadores" : "Adicionar marcador"} ▾</button></div>
+    ${aberto ? `<div class="nlpanel"><div class="note" style="margin-bottom:4px">Marcar a nota</div>
+      <input class="fld" id="nLabIn" placeholder="Nome do marcador" value="${esc(q || "")}" maxlength="40" autocomplete="off">
+      <div class="nlplist">${todas.map(l => `<label><input type="checkbox" data-nlck="${esc(l)}" ${sel.includes(l) ? "checked" : ""}> 🏷 ${esc(l)}</label>`).join("") || (qq ? "" : `<span class="note">Nenhum marcador ainda. Digite um nome para criar.</span>`)}</div>
+      ${qq && !existe ? `<button type="button" class="nlnew" data-nlnew>＋ Criar "${esc(q.trim())}"</button>` : ""}</div>` : ""}</div>`;
 }
+function openMarcadores(){
+  const draw = () => `<div class="mhead"><div class="mt">🏷 Editar marcadores</div><button class="x" data-close>×</button></div>
+    <div class="mbody"><div class="upd"><input class="fld" id="mkNew" placeholder="Criar novo marcador" maxlength="40"><button class="btn primary sm" id="mkAdd">＋ Criar</button></div>
+    <div class="mklist">${labelsAll().map(l => `<div class="mkrow"><span>🏷</span><input class="fld" data-mkren="${esc(l)}" value="${esc(l)}" maxlength="40"><span class="note">${(S.notas || []).filter(n => (n.marcadores || []).includes(l)).length} nota(s)</span><button class="btn ghost sm del" data-mkdel="${esc(l)}" title="Excluir marcador">🗑</button></div>`).join("") || `<p class="note">Nenhum marcador ainda.</p>`}</div>
+    <p class="note">Para renomear, altere o nome e clique fora do campo. Excluir o marcador não apaga as notas.</p></div>`;
+  const ov = overlay(draw(), "small");
+  const re = () => { ov.querySelector(".modal").innerHTML = draw(); bind(); if (S.view === "notas") renderNotas(); };
+  const trocar = (de, para) => {
+    const p = prefs(); p.marcadores = [...new Set((p.marcadores || []).concat(labelsAll()).map(x => x === de ? para : x).filter(Boolean))]; savePrefs(p);
+    (S.notas || []).filter(n => (n.marcadores || []).includes(de)).forEach(n => { const c = clone(n); c.marcadores = [...new Set(c.marcadores.map(x => x === de ? para : x).filter(Boolean))]; saveNota(c); });
+    if (N.lab === de) N.lab = para || "";
+  };
+  function bind(){
+    $$("#ov [data-close]").forEach(b => b.onclick = () => closeModal());
+    const add = () => { const v = $("#mkNew").value.trim().replace(/\s+/g, " "); if (!v) return; labelCriar(v); setTimeout(re, 0); };
+    $("#mkAdd").onclick = add; $("#mkNew").onkeydown = e => { if (e.key === "Enter"){ e.preventDefault(); add(); } };
+    $$("[data-mkren]").forEach(i => i.onchange = () => { const de = i.dataset.mkren, para = i.value.trim().replace(/\s+/g, " ");
+      if (!para || para === de) { i.value = de; return; }
+      if (labelsAll().some(x => x !== de && x.toLowerCase() === para.toLowerCase())){ toast("Já existe um marcador com esse nome.", true); i.value = de; return; }
+      trocar(de, para); toast("Marcador renomeado."); re(); });
+    $$("[data-mkdel]").forEach(b => b.onclick = () => { trocar(b.dataset.mkdel, null); toast("Marcador excluído."); re(); });
+  }
+  bind();
+}
+
+/* ===================== KANBAN: ocultar passos concluídos ===================== */
+const ckOculto = () => !!prefs().ckOcultar;
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-cktog]"); if (!b) return;
+  e.preventDefault(); const p = prefs(); p.ckOcultar = !p.ckOcultar; savePrefs(p);
+  const ck = $("#ck"); if (ck && K.openId && getD(K.openId)) ck.innerHTML = checklistHtml(getD(K.openId));
+  if (b.dataset.cktog) openDemandaPeek(b.dataset.cktog);
+});
 
 /* ===================== GOOGLE: conexão mais estável ===================== */
 // guarda a conexão entre abas e renova sozinha no próximo clique quando estiver perto de vencer (o Google dá 1 hora por vez)
@@ -199,11 +239,10 @@ function gRenew(){
   })).catch(() => { RENEW.busy = false; return false; });
 }
 function refreshAnxAll(){ $$("[data-anx]").forEach(b => { const [k, id] = b.dataset.anx.split("|"); b.outerHTML = anexosHtml(k, id); }); }
-document.addEventListener("click", () => {
-  if (!S.me || !(gOn() || driveOnPref())) return;
-  const falta = (G.exp || 0) - Date.now();
-  if (!G.token || falta < 8 * 60000) gRenew();
-}, true);
+// renova no clique (o Google só abre a janela de renovação a partir de um clique) quando faltar menos de 20 min
+const gTalvezRenovar = () => { if (!S.me || !(gOn() || driveOnPref())) return; const falta = (G.exp || 0) - Date.now(); if (!G.token || falta < 20 * 60000) gRenew(); };
+document.addEventListener("click", gTalvezRenovar, true);
+document.addEventListener("keydown", e => { if (e.key === "Enter") gTalvezRenovar(); }, true);
 // lembra que a pessoa usa o Drive
 const _driveConnect = driveConnect;
 window.driveConnect = async function(){ await _driveConnect(); const p = prefs(); if (!p.driveOn){ p.driveOn = true; savePrefs(p); } };
@@ -246,49 +285,70 @@ function pastasComigoHtml(){
 }
 
 /* ===================== CONTATOS ===================== */
-const CT = { q: "", loaded: false };
+const CT = { q: "", loaded: false, aba: "comp" };
 async function loadContatos(){ try { S.contatos = await API.list("contatos"); CT.loaded = true; } catch(e){ S.contatos = []; CT.err = errMsg(e); CT.loaded = true; } }
 const soDig = s => String(s || "").replace(/\D/g, "");
 const waLink = n => { let d = soDig(n); if (!d) return ""; if (d.length <= 11) d = "55" + (d.length <= 9 ? "81" + d : d); return "https://wa.me/" + d; };
 const podeEditarContato = c => c.dono === S.me.id || isAdmin();
+const ctCompTexto = c => !c.compartilhado ? "🔒 Só quem cadastrou" : (c.membros || []).length ? "👥 " + c.membros.map(nomeDe).join(", ") : "👥 Toda a equipe";
+function ctShareHtml(comp, membros){
+  const modo = !comp ? "eu" : (membros || []).length ? "alguns" : "todos";
+  return `<div class="section"><label class="f">Quem pode ver</label>
+    <div class="ctshare">
+      <label class="chk"><input type="radio" name="ctsh" value="eu" ${modo === "eu" ? "checked" : ""}> 🔒 Só eu (não compartilhado)</label>
+      <label class="chk"><input type="radio" name="ctsh" value="todos" ${modo === "todos" ? "checked" : ""}> 👥 Toda a equipe</label>
+      <label class="chk"><input type="radio" name="ctsh" value="alguns" ${modo === "alguns" ? "checked" : ""}> 👤 Só algumas pessoas</label></div>
+    <div id="ctShWho" ${modo === "alguns" ? "" : "hidden"} style="margin-top:6px">${pessoasChips("data-ctm", membros || [], [S.me.id])}</div></div>`;
+}
+function ctShareBind(root){
+  root.addEventListener("change", e => { if (e.target.name === "ctsh") $("#ctShWho").hidden = e.target.value !== "alguns"; });
+}
+function ctShareRead(){
+  const m = ($$('[name="ctsh"]').find(r => r.checked) || {}).value || "todos";
+  const membros = m === "alguns" ? $$("[data-ctm]").filter(c => c.checked).map(c => c.dataset.ctm) : [];
+  if (m === "alguns" && !membros.length) throw new Error("Escolha pelo menos uma pessoa (ou marque Toda a equipe).");
+  return { compartilhado: m !== "eu", membros };
+}
 function renderContatos(){
   const v = $("#v-contatos");
   if (!CT.loaded){ v.innerHTML = `<div class="empty" style="padding:40px"><div class="spinner" style="margin:auto"></div></div>`; loadContatos().then(() => S.view === "contatos" && renderContatos()); return; }
   const q = CT.q.trim().toLowerCase();
-  const l = (S.contatos || []).filter(c => !q || [c.nome, c.empresa, c.cargo, c.telefone, c.whatsapp, c.email, c.obs].join(" ").toLowerCase().includes(q))
+  const todos = (S.contatos || []).filter(c => !q || [c.nome, c.empresa, c.cargo, c.telefone, c.whatsapp, c.email, c.obs].join(" ").toLowerCase().includes(q))
     .sort((a, z) => a.nome.localeCompare(z.nome, "pt-BR"));
-  v.innerHTML = `<div class="ctwrap"><div class="kbar"><div class="ksearch" style="flex:1"><span>🔎</span><input id="ctQ" placeholder="Procurar por nome, empresa, telefone…" value="${esc(CT.q)}"></div>
-      <button class="btn primary" data-ct="new">＋ Novo contato</button></div>
+  const comp = todos.filter(c => c.compartilhado), priv = todos.filter(c => !c.compartilhado);
+  const l = CT.aba === "priv" ? priv : comp;
+  v.innerHTML = `<div class="ctwrap"><div class="kbar"><div class="ksearch" style="flex:1;min-width:200px"><span>🔎</span><input id="ctQ" placeholder="Procurar por nome, empresa, telefone…" value="${esc(CT.q)}"></div>
+      <button class="btn" data-ct="lote">📥 Cadastrar em lote</button><button class="btn primary" data-ct="new">＋ Novo contato</button></div>
+    <div class="seg" style="margin:12px 0 0"><button data-ctaba="comp" class="${CT.aba !== "priv" ? "on" : ""}">👥 Compartilhados (${comp.length})</button><button data-ctaba="priv" class="${CT.aba === "priv" ? "on" : ""}">🔒 Não compartilhados (${priv.length})</button></div>
     ${l.length ? `<div class="ctgrid">${l.map(c => `<div class="ctcard" data-ctid="${c.id}">
-      <div class="cttop"><span class="avatar" style="background:${(pessoa(c.dono) || {}).cor || "#8a94a6"}">${esc(initials(c.nome))}</span>
-        <div style="min-width:0;flex:1"><b>${esc(c.nome)}</b>${c.empresa || c.cargo ? `<div class="note">${esc([c.cargo, c.empresa].filter(Boolean).join(" · "))}</div>` : ""}</div>
-        ${!c.compartilhado ? `<span class="tag" title="Só você vê">🔒</span>` : ""}</div>
+      <div class="cttop"><span class="avatar" style="background:${(pessoa(c.dono) || (S.nomes || []).find(x => x.id === c.dono) || {}).cor || "#8a94a6"}">${esc(initials(c.nome))}</span>
+        <div style="min-width:0;flex:1"><b>${esc(c.nome)}</b>${c.empresa || c.cargo ? `<div class="note">${esc([c.cargo, c.empresa].filter(Boolean).join(" · "))}</div>` : ""}</div></div>
       <div class="ctacts">
         ${c.whatsapp ? `<a class="btn sm" href="${waLink(c.whatsapp)}" target="_blank" rel="noopener" title="WhatsApp ${esc(c.whatsapp)}">💬 WhatsApp</a>` : ""}
         ${c.telefone ? `<a class="btn sm" href="tel:${soDig(c.telefone)}" title="${esc(c.telefone)}">📞 ${esc(c.telefone)}</a>` : ""}
         ${c.email ? `<a class="btn sm" href="mailto:${esc(c.email)}" title="${esc(c.email)}">✉️ E-mail</a>` : ""}
       </div>
       ${c.obs ? `<div class="note ctobs">${esc(c.obs)}</div>` : ""}
-      <div class="note" style="margin-top:6px;font-size:11px">Cadastrado por ${esc(nomeDe(c.dono))}</div></div>`).join("")}</div>`
-      : `<div class="nempty">${q ? "Nenhum contato encontrado." : "📇 Nenhum contato ainda.<br><span class=\"note\">Cadastre fornecedores, transportadoras, assistências… Toda a equipe pode consultar.</span>"}</div>`}</div>`;
+      <div class="note" style="margin-top:6px;font-size:11px">${c.dono === S.me.id ? ctCompTexto(c) : "Cadastrado por " + esc(nomeDe(c.dono))}</div></div>`).join("")}</div>`
+      : `<div class="nempty">${q ? "Nenhum contato encontrado." : CT.aba === "priv" ? "🔒 Nenhum contato só seu.<br><span class=\"note\">Contatos não compartilhados ficam visíveis só para quem cadastrou.</span>" : "📇 Nenhum contato compartilhado ainda.<br><span class=\"note\">Cadastre fornecedores, transportadoras, assistências… e escolha quem pode ver.</span>"}</div>`}</div>`;
   const qi = $("#ctQ"); qi.oninput = () => { const p = qi.selectionStart; CT.q = qi.value; renderContatos(); const n = $("#ctQ"); n.focus(); n.setSelectionRange(p, p); };
 }
 function openContato(id){
   const c = id ? S.contatos.find(x => x.id === id) : null;
   const ro = c && !podeEditarContato(c);
-  const d = c ? clone(c) : { id: uuid(), dono: S.me.id, nome: "", empresa: "", cargo: "", telefone: "", whatsapp: "", email: "", obs: "", marcadores: [], compartilhado: true, criado_em: Date.now(), atualizado_em: Date.now() };
+  const d = c ? clone(c) : { id: uuid(), dono: S.me.id, nome: "", empresa: "", cargo: "", telefone: "", whatsapp: "", email: "", obs: "", marcadores: [], compartilhado: CT.aba !== "priv", membros: [], criado_em: Date.now(), atualizado_em: Date.now() };
   const f = (k, l, ph, t) => `<div><label class="f">${l}</label><input class="fld" data-ctf="${k}" type="${t || "text"}" value="${esc(d[k] || "")}" placeholder="${ph || ""}" ${ro ? "disabled" : ""}></div>`;
-  overlay(`<div class="mhead"><div class="mt">${c ? (ro ? "📇 Contato" : "Editar contato") : "＋ Novo contato"}</div>${c && !ro ? `<button class="x" data-ctx="del" title="Excluir">🗑</button>` : ""}<button class="x" data-close>×</button></div>
+  const ov = overlay(`<div class="mhead"><div class="mt">${c ? (ro ? "📇 Contato" : "Editar contato") : "＋ Novo contato"}</div>${c && !ro ? `<button class="x" data-ctx="del" title="Excluir">🗑</button>` : ""}<button class="x" data-close>×</button></div>
     <form class="mbody" id="ctF">
       ${f("nome", "Nome", "Nome da pessoa ou empresa")}
       <div class="grid2" style="margin-top:10px">${f("empresa", "Empresa")}${f("cargo", "Cargo / setor")}</div>
       <div class="grid2" style="margin-top:10px">${f("whatsapp", "WhatsApp", "(81) 9 9999-9999", "tel")}${f("telefone", "Telefone", "", "tel")}</div>
       <div style="margin-top:10px">${f("email", "E-mail", "", "email")}</div>
       <label class="f" style="margin-top:10px">Observações</label><textarea class="fld" data-ctf="obs" rows="3" ${ro ? "disabled" : ""}>${esc(d.obs || "")}</textarea>
-      ${ro ? `<p class="note">Cadastrado por ${esc(nomeDe(d.dono))}. Só essa pessoa (ou um administrador) pode alterar.</p>` :
-        `<label class="chk" style="margin-top:10px"><input type="checkbox" id="ctComp" ${d.compartilhado ? "checked" : ""}> Toda a equipe pode ver este contato</label>`}
+      ${ro ? `<p class="note">Cadastrado por ${esc(nomeDe(d.dono))}. Só essa pessoa (ou um administrador) pode alterar.</p>` : ctShareHtml(d.compartilhado, d.membros)}
       <div class="err" id="ctE"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button type="button" class="btn" data-close>${ro ? "Fechar" : "Cancelar"}</button>${ro ? "" : `<button class="btn primary">Salvar</button>`}</div></form>`, "mid");
+  if (!ro) ctShareBind(ov);
   setTimeout(() => { const i = $('[data-ctf="nome"]'); if (i && !ro) i.focus(); }, 30);
   const del = $('[data-ctx="del"]');
   if (del) del.onclick = () => confirmBox(`Excluir ${d.nome}?`, "O contato sai da lista de todos.", "Excluir", async () => {
@@ -297,14 +357,64 @@ function openContato(id){
     e.preventDefault(); if (ro) return;
     $$("[data-ctf]").forEach(i => { d[i.dataset.ctf] = i.value.trim(); });
     if (!d.nome){ $("#ctE").textContent = "Coloque o nome."; return; }
-    d.compartilhado = $("#ctComp").checked; d.atualizado_em = Date.now();
+    try { Object.assign(d, ctShareRead()); } catch(ex){ $("#ctE").textContent = ex.message; return; }
+    d.atualizado_em = Date.now();
     const i = S.contatos.findIndex(x => x.id === d.id); if (i >= 0) S.contatos[i] = d; else S.contatos.push(d);
+    CT.aba = d.compartilhado ? "comp" : "priv";
     closeModal(true); renderContatos(); await persist("contatos", d); toast("Contato salvo.");
+  };
+}
+/* --- cadastro em lote: colar do Excel/WhatsApp ou enviar .csv --- */
+const CT_COLS = [["nome", /^nome|^contato/i], ["whatsapp", /whats|zap|celular/i], ["telefone", /^tel|^fone/i], ["email", /mail/i], ["empresa", /empresa|fornecedor|raz/i], ["cargo", /cargo|setor|fun/i], ["obs", /obs|nota|coment/i]];
+const CT_ORDEM = ["nome", "whatsapp", "telefone", "email", "empresa", "cargo", "obs"];
+function ctParse(txt){
+  const linhas = txt.replace(/\r/g, "").split("\n").map(l => l.trim()).filter(Boolean);
+  if (!linhas.length) return [];
+  const sep = linhas[0].includes("\t") ? "\t" : linhas[0].includes(";") ? ";" : ",";
+  const split = l => { const out = []; let cur = "", q = false; for (const ch of l){ if (ch === '"') q = !q; else if (ch === sep && !q){ out.push(cur); cur = ""; } else cur += ch; } out.push(cur); return out.map(x => x.trim()); };
+  let ordem = CT_ORDEM, ini = 0;
+  const h = split(linhas[0]);
+  if (h.some(x => /^nome|whats|telefone|e-?mail|empresa/i.test(x))){ ordem = h.map(x => (CT_COLS.find(([, r]) => r.test(x)) || [null])[0]); ini = 1; }
+  return linhas.slice(ini).map(l => { const v = split(l), c = {}; ordem.forEach((k, i) => { if (k && v[i]) c[k] = (c[k] ? c[k] + " " : "") + v[i]; });
+    if (!c.nome && v.length === 1 && v[0]) c.nome = v[0];
+    if (!c.email){ const m = l.match(/[\w.+-]+@[\w-]+\.[\w.]+/); if (m) c.email = m[0]; }
+    return c; }).filter(c => c.nome);
+}
+function openContatosLote(){
+  let lista = [];
+  const ov = overlay(`<div class="mhead"><div class="mt">📥 Cadastrar contatos em lote</div><button class="x" data-close>×</button></div>
+    <form class="mbody" id="clF">
+      <p class="note" style="margin-top:0">Cole abaixo, um contato por linha, na ordem: <b>Nome; WhatsApp; Telefone; E-mail; Empresa; Cargo; Observação</b>. Pode copiar direto de uma planilha do Excel (com ou sem a linha de títulos) ou enviar um arquivo .csv.</p>
+      <textarea class="fld" id="clT" rows="7" placeholder="Transportadora Rápida; 81 99999-0000; ; contato@rapida.com; Rápida Log; Comercial&#10;João da Assistência; 81 98888-1111"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><label class="btn sm">📄 Enviar arquivo .csv<input type="file" id="clFile" accept=".csv,.txt,text/csv,text/plain" hidden></label><span class="note" id="clN"></span></div>
+      <div id="clPrev" class="clprev"></div>
+      ${ctShareHtml(CT.aba !== "priv", [])}
+      <div class="err" id="clE"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" id="clOk" disabled>Cadastrar</button></div></form>`, "mid");
+  ctShareBind(ov);
+  const prev = () => {
+    lista = ctParse($("#clT").value);
+    $("#clN").textContent = lista.length ? `${lista.length} contato(s) reconhecido(s)` : "";
+    $("#clOk").disabled = !lista.length; $("#clOk").textContent = lista.length ? `Cadastrar ${lista.length}` : "Cadastrar";
+    $("#clPrev").innerHTML = lista.length ? `<table><thead><tr><th>Nome</th><th>WhatsApp</th><th>Telefone</th><th>E-mail</th><th>Empresa</th></tr></thead><tbody>${lista.slice(0, 50).map(c => `<tr><td>${esc(c.nome)}</td><td>${esc(c.whatsapp || "")}</td><td>${esc(c.telefone || "")}</td><td>${esc(c.email || "")}</td><td>${esc(c.empresa || "")}</td></tr>`).join("")}</tbody></table>${lista.length > 50 ? `<p class="note">… e mais ${lista.length - 50}</p>` : ""}` : "";
+  };
+  $("#clT").oninput = prev;
+  $("#clFile").onchange = async e => { const f = e.target.files[0]; if (!f) return; let t = await f.text(); if (t.includes("�")){ try { t = new TextDecoder("windows-1252").decode(await f.arrayBuffer()); } catch {} } $("#clT").value = t; prev(); };
+  $("#clF").onsubmit = async e => {
+    e.preventDefault(); let sh; try { sh = ctShareRead(); } catch(ex){ $("#clE").textContent = ex.message; return; }
+    if (!lista.length) return; $("#clOk").disabled = true;
+    const now = Date.now();
+    const rows = lista.map((c, i) => ({ id: uuid(), dono: S.me.id, nome: c.nome.slice(0, 120), empresa: c.empresa || "", cargo: c.cargo || "", telefone: c.telefone || "", whatsapp: c.whatsapp || "", email: c.email || "", obs: c.obs || "", marcadores: [], compartilhado: sh.compartilhado, membros: sh.membros, criado_em: now + i, atualizado_em: now + i }));
+    try { for (const r of rows) await API.save("contatos", r); }
+    catch(ex){ $("#clE").textContent = "Parou no meio: " + errMsg(ex); $("#clOk").disabled = false; CT.loaded = false; return; }
+    S.contatos.push(...rows); CT.aba = sh.compartilhado ? "comp" : "priv"; closeModal(true); renderContatos(); toast(`${rows.length} contato(s) cadastrado(s).`);
   };
 }
 document.addEventListener("click", e => {
   if (S.view !== "contatos" || e.target.closest("#modalRoot")) return;
   if (e.target.closest('[data-ct="new"]')){ openContato(null); return; }
+  if (e.target.closest('[data-ct="lote"]')){ openContatosLote(); return; }
+  const ab = e.target.closest("[data-ctaba]"); if (ab){ CT.aba = ab.dataset.ctaba; renderContatos(); return; }
   if (e.target.closest("a")) return;
   const c = e.target.closest("[data-ctid]"); if (c) openContato(c.dataset.ctid);
 });
@@ -373,4 +483,85 @@ function openAvisos(){
   };
   $("#avMin").onchange = e => { const q = prefs(); q.avisosMin = +e.target.value; savePrefs(q); };
   $("#avTeste").onclick = async () => { if (Notification.permission !== "granted"){ const r = await Notification.requestPermission(); if (r !== "granted") return; } await avRegistrar(); avNotificar("🔔 Acompanhamento ADM", "Os avisos estão funcionando.", "teste" + Date.now()); };
+}
+
+/* ===================== BACKUP / EXPORTAR DADOS ===================== */
+const bkLbl = (dono, k) => { if (k === FIN) return "Finalizado"; const p = S.perfis.find(x => x.id === dono);
+  const cols = (p && p.preferencias && Array.isArray(p.preferencias.colunas) && p.preferencias.colunas.length) ? p.preferencias.colunas : (S.globalCols || COLS);
+  const c = (cols || []).find(x => x.key === k) || COLS.find(x => x.key === k); return c ? c.label : k; };
+const bkDt = ts => ts ? new Date(+ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+const bkYmd = s => s ? fmtYmd(s, { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+async function bkColetar(tudo){
+  const [dem, evs, notas, cts, pastas] = await Promise.all([
+    tudo ? API.list("demandas") : API.list("demandas", S.me.id),
+    tudo ? API.list("eventos") : API.list("eventos", S.me.id),
+    API.list("notas", S.me.id), API.list("contatos").catch(() => []), API.list("pastas_compartilhadas").catch(() => [])]);
+  return { app: "acompanhamento-adm", versao: 1, gerado_em: new Date().toISOString(), por: { id: S.me.id, nome: S.me.nome }, escopo: tudo ? "equipe" : "meu",
+    pessoas: (S.nomes || []).map(p => ({ id: p.id, nome: p.nome })), preferencias: S.me.preferencias || {},
+    tabelas: { demandas: dem, eventos: evs, notas, contatos: cts, pastas_compartilhadas: pastas } };
+}
+function bkXls(b){
+  const x = v => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\n/g, "&#10;");
+  const sheet = (nome, cab, linhas) => `<Worksheet ss:Name="${x(nome)}"><Table>${[cab, ...linhas].map((l, i) => `<Row>${l.map(c => `<Cell${i ? "" : ' ss:StyleID="h"'}><Data ss:Type="String">${x(c)}</Data></Cell>`).join("")}</Row>`).join("")}</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane></WorksheetOptions></Worksheet>`;
+  const t = b.tabelas, nm = id => nomeDe(id);
+  const notasDe = h => (h || []).filter(n => n.tipo === "nota").sort((a, z) => a.em - z.em);
+  const dem = t.demandas.slice().sort((a, z) => nm(a.dono).localeCompare(nm(z.dono)) || a.criado_em - z.criado_em).map(d => {
+    const ns = notasDe(d.historico), cl = d.checklist || [];
+    return [d.titulo, nm(d.dono), bkLbl(d.dono, d.status), prioKey(d.prioridade) ? PRIO[prioKey(d.prioridade)].l : "", bkYmd(d.prazo), d.descricao || "",
+      cl.length ? `${cl.filter(c => c.feito).length}/${cl.length}` : "", cl.map(c => (c.feito ? "✓ " : "☐ ") + c.texto).join("\n"),
+      ns.length ? bkDt(ns[ns.length - 1].em) : "", ns.map(n => bkDt(n.em) + (n.por ? " · " + n.por : "") + ": " + n.texto).join("\n"),
+      (d.participantes || []).map(nm).join(", "), bkDt(d.criado_em), bkDt(d.finalizado_em)]; });
+  const evs = t.eventos.slice().sort((a, z) => (a.data || "").localeCompare(z.data || "")).map(e => [e.tipo === "missao" ? "Missão" : "Evento", e.titulo, nm(e.dono), bkYmd(e.data), bkYmd(e.data_fim), hm(e.hora_inicio), hm(e.hora_fim), e.local || "",
+    REC[e.recorrencia] || "", prioKey(e.prioridade) ? PRIO[prioKey(e.prioridade)].l : "", (e.recorrencia && e.recorrencia !== "nenhuma") ? `${(e.concluidas || []).length} dia(s) concluído(s)` : e.concluida ? "Concluído" : "Em aberto",
+    e.pessoal ? "Sim" : "", e.descricao || "", notasDe(e.historico).map(n => bkDt(n.em) + ": " + n.texto).join("\n")]);
+  const nts = t.notas.map(n => [n.titulo, [n.texto, ...(n.itens || []).map(i => (i.feito ? "✓ " : "☐ ") + i.texto)].filter(Boolean).join("\n"), (n.marcadores || []).join(", "), n.fixada ? "Sim" : "", n.arquivada ? "Sim" : "", bkDt(n.atualizado_em)]);
+  const cts = t.contatos.slice().sort((a, z) => a.nome.localeCompare(z.nome, "pt-BR")).map(c => [c.nome, c.empresa, c.cargo, c.whatsapp, c.telefone, c.email, c.obs, ctCompTexto(c).replace(/^\S+ /, ""), nm(c.dono)]);
+  return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style><Style ss:ID="h"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2F5BEA" ss:Pattern="Solid"/></Style></Styles>`
+    + sheet("Demandas", ["Título", "Pessoa", "Quadro", "Prioridade", "Prazo", "Descrição", "Checklist", "Passos", "Última atualização", "Atualizações", "Compartilhada com", "Cadastrada em", "Finalizada em"], dem)
+    + sheet("Agenda", ["Tipo", "Título", "Pessoa", "Data", "Até", "Início", "Fim", "Local", "Repetição", "Prioridade", "Situação", "Pessoal", "Descrição", "Atualizações"], evs)
+    + sheet("Notas", ["Título", "Conteúdo", "Marcadores", "Fixada", "Arquivada", "Editada em"], nts)
+    + sheet("Contatos", ["Nome", "Empresa", "Cargo", "WhatsApp", "Telefone", "E-mail", "Observações", "Quem vê", "Cadastrado por"], cts)
+    + `</Workbook>`;
+}
+function openBackup(){
+  const adm = isAdmin();
+  overlay(`<div class="mhead"><div class="mt">💾 Backup e exportar dados</div><button class="x" data-close>×</button></div>
+    <div class="mbody">
+      ${adm ? `<label class="f">O que incluir</label><div class="ctshare" style="margin-bottom:10px">
+        <label class="chk"><input type="radio" name="bkesc" value="meu" checked> 👤 Só os meus dados</label>
+        <label class="chk"><input type="radio" name="bkesc" value="tudo"> 👥 Tudo o que eu posso ver (equipe)</label></div>` : ""}
+      <div class="bkopts">
+        <button class="btn" data-bk="xls"><b>📊 Planilha do Excel</b><span class="note">Demandas, agenda, notas e contatos em abas, para ler, filtrar ou imprimir.</span></button>
+        <button class="btn" data-bk="json"><b>💾 Backup completo (.json)</b><span class="note">Cópia de segurança com tudo (histórico, checklists, anexos). Serve para restaurar depois.</span></button>
+      </div>
+      <h3 style="margin:18px 0 6px;font-size:14px">⬆ Restaurar um backup</h3>
+      <p class="note" style="margin:0 0 8px">Escolha um arquivo .json gerado aqui. O que estiver no arquivo volta para o sistema (se ainda existir, é substituído pela versão do backup). Nada que não esteja no arquivo é apagado.</p>
+      <label class="btn sm">📂 Escolher arquivo de backup<input type="file" id="bkFile" accept=".json,application/json" hidden></label>
+      <div class="note" id="bkMsg" style="margin-top:10px"></div>
+      <p class="note" style="margin-top:14px">Dica: faça um backup completo de tempos em tempos e guarde no Google Drive ou no computador. O Excel pode avisar que o formato do arquivo é diferente da extensão — é só clicar em <b>Sim</b> para abrir.</p>
+    </div>`, "small");
+  const tudo = () => adm && ($$('[name="bkesc"]').find(r => r.checked) || {}).value === "tudo";
+  $$("[data-bk]").forEach(b => b.onclick = async () => {
+    const tipo = b.dataset.bk; $("#bkMsg").textContent = "Reunindo os dados…"; $$("[data-bk]").forEach(x => x.disabled = true);
+    try {
+      const bk = await bkColetar(tudo()), dia = todayYmd(), base = `Acompanhamento-ADM-${bk.escopo === "equipe" ? "equipe" : semAcento(S.me.nome).replace(/\s+/g, "-")}-${dia}`;
+      if (tipo === "json") download(base + ".json", JSON.stringify(bk, null, 1), "application/json");
+      else download(base + ".xls", bkXls(bk), "application/vnd.ms-excel");
+      const t = bk.tabelas; $("#bkMsg").textContent = `✓ Arquivo gerado: ${t.demandas.length} demanda(s), ${t.eventos.length} compromisso(s), ${t.notas.length} nota(s), ${t.contatos.length} contato(s).`;
+      const p = prefs(); p.ultimoBackup = Date.now(); savePrefs(p);
+    } catch(e){ $("#bkMsg").textContent = "Erro: " + errMsg(e); }
+    $$("[data-bk]").forEach(x => x.disabled = false);
+  });
+  $("#bkFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    let bk; try { bk = JSON.parse(await f.text()); } catch { toast("Esse arquivo não é um backup válido.", true); return; }
+    if (!bk || bk.app !== "acompanhamento-adm" || !bk.tabelas){ toast("Esse arquivo não é um backup deste sistema.", true); return; }
+    const t = bk.tabelas, ord = ["demandas", "eventos", "notas", "contatos"], n = ord.reduce((s, k) => s + (t[k] || []).length, 0);
+    confirmBox("Restaurar este backup?", `Gerado em ${bkDt(Date.parse(bk.gerado_em))} por ${bk.por ? bk.por.nome : "?"}: ${(t.demandas || []).length} demanda(s), ${(t.eventos || []).length} compromisso(s), ${(t.notas || []).length} nota(s) e ${(t.contatos || []).length} contato(s). Itens que já existem voltam para a versão do backup.`, "Restaurar", async () => {
+      let ok = 0, fal = 0; toast(`Restaurando ${n} itens…`);
+      for (const k of ord) for (const r of (t[k] || [])){ try { await API.save(k, r); ok++; } catch { fal++; } }
+      N.loaded = false; CT.loaded = false; await reloadSpace(false); renderAll();
+      toast(fal ? `Restaurados ${ok} itens. ${fal} não puderam ser restaurados (sem permissão).` : `Backup restaurado: ${ok} itens.`, !!fal);
+    }, "primary");
+  };
 }

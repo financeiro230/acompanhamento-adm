@@ -23,7 +23,7 @@ function matchesSearch(it){
 }
 
 /* ---------- ações ---------- */
-function createDemanda({titulo, descricao="", prazo=null, prioridade="media", status="pendente", dono=S.space, cor=null}){
+function createDemanda({titulo, descricao="", prazo=null, prioridade="normal", status="pendente", dono=S.space, cor=null}){
   const now = Date.now();
   const it = { id: uuid(), dono, titulo: titulo.trim(), descricao: (descricao||"").trim(), status, prioridade, cor: cor || null, anexos: [],
     prazo: prazo || null, checklist: [], criado_em: now, atualizado_em: now, finalizado_em: null, criado_por: S.me.id,
@@ -304,7 +304,7 @@ function openNewDemanda(pre = {}){
       <div class="grid3 section">
         <div><label class="f">Quadro</label><select class="fld" id="nS">${COLS.map(c=>`<option value="${c.key}" ${c.key===firstMain()?"selected":""}>${esc(c.label)}</option>`).join("")}</select></div>
         <div><label class="f">Prazo</label><input class="fld" type="date" id="nP" value="${esc(pre.prazo||"")}"></div>
-        <div><label class="f">Prioridade</label><select class="fld" id="nR">${prioOpts(pre.prioridade || "media")}</select></div>
+        <div><label class="f">Prioridade</label><select class="fld" id="nR">${prioOpts(pre.prioridade || "")}</select></div>
       </div>
       <div class="section"><label class="f">Cor do cartão (opcional)</label>${swatchesHtml(null, "dcor", "#8a94a6")}</div>
       ${donoSelectHtml("nO", S.space)}
@@ -315,7 +315,7 @@ function openNewDemanda(pre = {}){
     e.preventDefault();
     const t = $("#nT").value.trim(); if (!t) return;
     const dono = $("#nO") ? $("#nO").value : S.space;
-    createDemanda({titulo:t, descricao:$("#nD").value, status:$("#nS").value, prazo:$("#nP").value||null, prioridade:$("#nR").value, cor:swValue(ov, "dcor"), dono});
+    createDemanda({titulo:t, descricao:$("#nD").value, status:$("#nS").value, prazo:$("#nP").value||null, prioridade:$("#nR").value || "normal", cor:swValue(ov, "dcor"), dono});
     closeModal(true); toast(dono === S.space ? "Demanda cadastrada." : `Demanda cadastrada no espaço de ${perfil(dono).nome}.`);
   });
 }
@@ -359,8 +359,9 @@ function timelineHtml(it){
 }
 function checklistHtml(it){
   const cl = it.checklist||[], done = cl.filter(c=>c.feito).length, pct = cl.length ? Math.round(done*100/cl.length) : 0;
-  return `${cl.length?`<div class="ckprog"><div class="ckbar"><span style="width:${pct}%"></span></div><span>${done} de ${cl.length} concluído(s)</span></div>`:""}
-    <ul class="cklist">${cl.map((c,i) => `<li class="${c.feito?"done":""}">
+  const oc = ckOculto() && done > 0;
+  return `${cl.length?`<div class="ckprog"><div class="ckbar"><span style="width:${pct}%"></span></div><span>${done} de ${cl.length} concluído(s)</span>${done ? `<button type="button" class="lnk cktog" data-cktog>${oc ? `👁 Mostrar concluídos (${done})` : "🙈 Ocultar concluídos"}</button>` : ""}</div>`:""}
+    <ul class="cklist">${cl.map((c,i) => `<li class="${c.feito?"done":""}" ${oc && c.feito ? "hidden" : ""}>
       <input type="checkbox" data-ck="${c.id}" ${c.feito?"checked":""}>
       <input class="ckt" data-ckt="${c.id}" value="${esc(c.texto)}" title="${c.feitoEm?"Concluído em "+fmt(c.feitoEm):"Clique para editar"}">
       ${c.feitoEm?`<span class="ckwhen">${fmtD(c.feitoEm)}</span>`:`<label class="ckdl ${c.prazo && c.prazo < todayYmd() ? "late" : ""}" title="Prazo do passo (aparece na agenda)">⏰<input type="date" data-ckd="${c.id}" value="${esc(c.prazo||"")}"></label>`}
@@ -482,7 +483,7 @@ function wireDemandaFoot(){
 function saveDemandaEdits(){
   const t = $("#dT").value.trim(); if (!t){ toast("O título não pode ficar vazio."); return; }
   const cur = getD(K.openId), pr = $("#dR").value;
-  editD(K.openId, {titulo:t, descricao:$("#dD").value.trim(), prazo:$("#dP").value||null, prioridade: prioKey(cur.prioridade) === pr ? cur.prioridade : pr, cor:swValue($("#ov"), "dcor")});
+  editD(K.openId, {titulo:t, descricao:$("#dD").value.trim(), prazo:$("#dP").value||null, prioridade: prioKey(cur.prioridade) === pr ? cur.prioridade : (pr || "normal"), cor:swValue($("#ov"), "dcor")});
   K.dirty = false; $("#dSave").classList.add("hidden"); toast("Alterações salvas.");
 }
 function refreshDemandaModal(){
@@ -627,8 +628,8 @@ function openDemandaPeek(id){
         <span class="tag">⏳ ${idleDays(it)} dia(s) sem movimento</span>
       </div>
       ${it.descricao ? `<div style="white-space:pre-wrap;line-height:1.5;margin-bottom:12px">${esc(it.descricao)}</div>` : ""}
-      ${cl.length ? `<div class="section" style="margin-top:6px"><h3>✅ Checklist · ${cl.length - pend.length}/${cl.length}</h3>
-        ${cl.map(x => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pkck="${x.id}" ${x.feito?"checked":""}> <span style="${x.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(x.texto)}</span>${x.prazo && !x.feito ? `<span class="tag ${x.prazo < todayYmd() ? "late" : ""}" style="margin-left:auto">⏰ ${fmtYmd(x.prazo)}</span>` : ""}</label>`).join("")}</div>` : ""}
+      ${cl.length ? `<div class="section" style="margin-top:6px"><h3>✅ Checklist · ${cl.length - pend.length}/${cl.length}${cl.length > pend.length ? ` <button type="button" class="lnk cktog" data-cktog="${it.id}" style="font-weight:400">${ckOculto() ? `👁 Mostrar concluídos (${cl.length - pend.length})` : "🙈 Ocultar concluídos"}</button>` : ""}</h3>
+        ${cl.filter(x => !(ckOculto() && x.feito)).map(x => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pkck="${x.id}" ${x.feito?"checked":""}> <span style="${x.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(x.texto)}</span>${x.prazo && !x.feito ? `<span class="tag ${x.prazo < todayYmd() ? "late" : ""}" style="margin-left:auto">⏰ ${fmtYmd(x.prazo)}</span>` : ""}</label>`).join("")}</div>` : ""}
       <div class="section"><h3>💬 Últimas atualizações</h3>
         ${notes.length ? notes.map(n => `<div class="lastupd pkupd" style="border-top:0;padding-top:0;-webkit-line-clamp:3"><span class="nacts updacts"><button type="button" data-pkne="${n.em}" data-pkid="${it.id}" title="Editar">✏️</button><button type="button" data-pknx="${n.em}" data-pkid="${it.id}" title="Excluir">🗑</button></span><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}${n.editadoEm ? " (editada)" : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
         <div class="upd" style="margin-top:8px"><input class="fld" id="pkNote" placeholder="Registrar andamento rápido… (Enter)"><button class="btn sm primary" data-pk="note">Registrar</button></div></div>

@@ -205,12 +205,14 @@ $("#meBtn").addEventListener("click", () => {
       <button class="btn" id="meAp">🎨 Aparência (tema e cores)</button>
       <button class="btn" id="mePw">🔑 Trocar minha senha</button>
       <button class="btn" id="meAv">🔔 Avisos no celular e no computador</button>
+      <button class="btn" id="meBk">💾 Backup / exportar dados</button>
       <button class="btn" id="meOut">🚪 Sair</button>
       <p class="note" style="margin:6px 0 0">Por segurança, o sistema sai sozinho após ${CFG.idleMin} minutos sem uso ou quando você fecha a aba.</p>
     </div>`, "small");
   $("#mePw").onclick = () => { closeModal(true); passModal(S.me); };
   $("#meAp").onclick = () => { closeModal(true); openAparencia(); };
   $("#meAv").onclick = () => { closeModal(true); openAvisos(); };
+  $("#meBk").onclick = () => { closeModal(true); openBackup(); };
   $("#meOut").onclick = () => logout();
 });
 $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));

@@ -3,10 +3,10 @@
 
 /* ---------- prioridade: alta / média / baixa ---------- */
 const PRIO = { alta: { l: "Alta", r: 0, i: "▲" }, media: { l: "Média", r: 1, i: "◆" }, baixa: { l: "Baixa", r: 2, i: "▼" } };
-const prioKey = p => p === "alta" ? "alta" : p === "baixa" ? "baixa" : "media";   // "normal" (antigo) = média
-const prioRankOf = p => PRIO[prioKey(p)].r;
-const prioTag = (p, long) => { const k = prioKey(p); return `<span class="tag prio-${k}" title="Prioridade ${PRIO[k].l.toLowerCase()}">${PRIO[k].i} ${long ? "Prioridade " : ""}${PRIO[k].l}</span>`; };
-const prioOpts = sel => Object.keys(PRIO).map(k => `<option value="${k}" ${prioKey(sel) === k ? "selected" : ""}>${PRIO[k].i} ${PRIO[k].l}</option>`).join("");
+const prioKey = p => p === "alta" || p === "media" || p === "baixa" ? p : "";   // "normal" (antigo), vazio ou nulo = sem prioridade
+const prioRankOf = p => { const k = prioKey(p); return k ? PRIO[k].r : 1.5; };
+const prioTag = (p, long) => { const k = prioKey(p); if (!k) return ""; return `<span class="tag prio-${k}" title="Prioridade ${PRIO[k].l.toLowerCase()}">${PRIO[k].i} ${long ? "Prioridade " : ""}${PRIO[k].l}</span>`; };
+const prioOpts = sel => `<option value="" ${!prioKey(sel) ? "selected" : ""}>— Sem prioridade</option>` + Object.keys(PRIO).map(k => `<option value="${k}" ${prioKey(sel) === k ? "selected" : ""}>${PRIO[k].i} ${PRIO[k].l}</option>`).join("");
 const cardColor = cor => cor ? { cls: " colored", st: ` style="--cc:${esc(cor)}"` } : { cls: "", st: "" };
 
 /* ---------- utilidades ---------- */
@@ -255,7 +255,7 @@ function renderNotas(){
       <div class="ksearch"><span>🔎</span><input id="nSearch" placeholder="Pesquisar nas notas…" value="${esc(N.q)}"></div>
       <div class="seg"><button data-narqv="0" class="${!N.arq ? "on" : ""}">📝 Notas</button><button data-narqv="1" class="${N.arq ? "on" : ""}">🗄 Arquivadas${narq ? ` (${narq})` : ""}</button></div>
     </div>
-    ${notaLabels().length ? `<div class="nlabbar"><button class="nlabel ${!N.lab ? "on" : ""}" data-nlabf="">Todas</button>${notaLabels().map(l => `<button class="nlabel ${N.lab === l ? "on" : ""}" data-nlabf="${esc(l)}">🏷 ${esc(l)}</button>`).join("")}</div>` : ""}
+    ${`<div class="nlabbar"><button class="nlabel ${!N.lab ? "on" : ""}" data-nlabf="">Todas</button>${labelsAll().map(l => `<button class="nlabel ${N.lab === l ? "on" : ""}" data-nlabf="${esc(l)}">🏷 ${esc(l)}</button>`).join("")}<button class="nlabel ghostl" data-nlman title="Criar, renomear e excluir marcadores">✏️ Editar marcadores</button></div>`}
     ${!N.arq ? `<div class="ncompose"><button class="ncin" data-nnew="texto">Criar uma nota…</button><button class="btn ghost" data-nnew="lista" title="Nova lista">☑ Lista</button></div>` : ""}
     ${!isOwnSpace() ? `<p class="note" style="text-align:center">As notas são pessoais: aqui aparecem sempre as suas, nunca as de outra pessoa.</p>` : ""}
     ${fix.length ? `<h5 class="nsec">📌 Fixadas</h5><div class="ngrid">${fix.map(noteCard).join("")}</div>${outras.length ? `<h5 class="nsec">Outras</h5>` : ""}` : ""}
@@ -287,6 +287,7 @@ document.addEventListener("click", e => {
   const dl = t.closest("[data-ndelx]"); if (dl){ delNota(dl.dataset.ndelx); return; }
   const ck = t.closest("[data-nck]");
   if (ck){ const [nid, iid] = ck.dataset.nck.split("|"); const n = clone(getN(nid)); const i = n.itens.find(x => x.id === iid); i.feito = ck.checked; saveNota(n); return; }
+  if (t.closest("[data-nlman]")){ openMarcadores(); return; }
   const lf = t.closest("[data-nlabf]"); if (lf){ N.lab = N.lab === lf.dataset.nlabf ? "" : lf.dataset.nlabf; renderNotas(); return; }
   const card = t.closest("[data-nota]"); if (card) openNotaView(card.dataset.nota);
 });
@@ -310,7 +311,7 @@ function openNota(id, lista){
   const ov = overlay(`<div class="nedit" ${d.cor ? `style="--nc:${d.cor}"` : ""} id="nEd">
     <div class="nedhead"><input class="ntitle" id="nTi" placeholder="Título" value="${esc(d.titulo)}"><button type="button" class="npin ${d.fixada ? "on" : ""}" id="nPin" title="Fixar">📌</button></div>
     <div id="nBody">${body()}</div>
-    <div id="nLabBox">${labelsEditorHtml(d.marcadores)}</div>
+    <div id="nLabBox">${labelsEditorHtml(d.marcadores, false, "")}</div>
     <div class="nfoot" style="margin-top:12px">
       <div class="ncolors">${NOTE_CORES.map((c, i) => `<button type="button" class="ncol ${(d.cor || null) === c ? "on" : ""}" data-ncor="${c || ""}" title="${NOTE_NOMES[i]}" style="${c ? `background:${c}` : ""}"></button>`).join("")}</div>
       <span class="nacts">
@@ -327,9 +328,12 @@ function openNota(id, lista){
     },
   });
   const redraw = () => { $("#nBody").innerHTML = body(); };
+  const lab = { open: false, q: "" };
+  const labRedraw = foco => { $("#nLabBox").innerHTML = labelsEditorHtml(d.marcadores, lab.open, lab.q); const i = $("#nLabIn"); if (foco && i){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); } };
   const focusItem = iid => { const el = ov.querySelector(`[data-nit="${iid}"]`); if (el) el.focus(); };
   const addItem = after => { const ni = { id: uuid(), texto: "", feito: false }; const k = after ? d.itens.findIndex(x => x.id === after) + 1 : d.itens.length; d.itens.splice(k, 0, ni); redraw(); focusItem(ni.id); };
   ov.addEventListener("input", e => {
+    if (e.target.id === "nLabIn"){ lab.q = e.target.value; labRedraw(true); return; }
     if (e.target.id === "nTi") d.titulo = e.target.value;
     if (e.target.id === "nTx") d.texto = e.target.value;
     const k = e.target.dataset.nit; if (k){ const i = d.itens.find(x => x.id === k); if (i) i.texto = e.target.value; }
@@ -338,16 +342,21 @@ function openNota(id, lista){
     const k = e.target.dataset && e.target.dataset.nit;
     if (k && e.key === "Enter"){ e.preventDefault(); addItem(k); }
     if (k && e.key === "Backspace" && !e.target.value && d.itens.length > 1){ e.preventDefault(); const idx = d.itens.findIndex(x => x.id === k); d.itens.splice(idx, 1); redraw(); const prev = d.itens[Math.max(0, idx - 1)]; prev && focusItem(prev.id); }
-    if (e.target.id === "nLabIn" && e.key === "Enter"){ e.preventDefault(); const v = e.target.value.trim().replace(/\s+/g, " ");
-      if (v && !d.marcadores.some(x => x.toLowerCase() === v.toLowerCase())) d.marcadores.push(notaLabels().find(x => x.toLowerCase() === v.toLowerCase()) || v);
-      $("#nLabBox").innerHTML = labelsEditorHtml(d.marcadores); $("#nLabIn").focus(); return; }
+    if (e.target.id === "nLabIn" && e.key === "Enter"){ e.preventDefault(); const v = e.target.value.trim().replace(/\s+/g, " "); if (!v) return;
+      const ex = labelsAll().find(x => x.toLowerCase() === v.toLowerCase());
+      if (ex){ if (!d.marcadores.includes(ex)) d.marcadores.push(ex); } else { labelCriar(v); d.marcadores.push(v); }
+      lab.q = ""; labRedraw(true); return; }
+    if (e.target.id === "nLabIn" && e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); lab.open = false; labRedraw(); return; }
     if (e.target.id === "nTi" && e.key === "Enter"){ e.preventDefault(); const nx = ov.querySelector("#nTx, [data-nit]"); nx && nx.focus(); }
   });
   ov.addEventListener("click", e => {
     const t = e.target;
     const c = t.closest("[data-ncor]");
     if (c){ d.cor = c.dataset.ncor || null; [...ov.querySelectorAll(".ncol")].forEach(x => x.classList.toggle("on", x === c)); const ed = $("#nEd"); d.cor ? ed.style.setProperty("--nc", d.cor) : ed.style.removeProperty("--nc"); return; }
-    const lr = t.closest("[data-nlrm]"); if (lr){ d.marcadores = d.marcadores.filter(x => x !== lr.dataset.nlrm); $("#nLabBox").innerHTML = labelsEditorHtml(d.marcadores); return; }
+    const lr = t.closest("[data-nlrm]"); if (lr){ d.marcadores = d.marcadores.filter(x => x !== lr.dataset.nlrm); labRedraw(); return; }
+    if (t.closest("[data-nlopen]")){ lab.open = !lab.open; lab.q = ""; labRedraw(lab.open); return; }
+    const lc = t.closest("[data-nlck]"); if (lc){ const l = lc.dataset.nlck; d.marcadores = lc.checked ? [...new Set([...d.marcadores, l])] : d.marcadores.filter(x => x !== l); labRedraw(true); return; }
+    const ln = t.closest("[data-nlnew]"); if (ln){ const v = lab.q.trim().replace(/\s+/g, " "); if (v){ labelCriar(v); d.marcadores.push(v); lab.q = ""; } labRedraw(true); return; }
     if (t.closest("#nPin")){ d.fixada = !d.fixada; if (d.fixada) d.arquivada = false; $("#nPin").classList.toggle("on", d.fixada); return; }
     if (t.closest("#nArq")){ d.arquivada = !d.arquivada; if (d.arquivada) d.fixada = false; closeModal(true); toast(d.arquivada ? "Nota arquivada." : "Nota de volta às notas."); return; }
     if (t.closest("#nDel")){ delNota(d.id); return; }
