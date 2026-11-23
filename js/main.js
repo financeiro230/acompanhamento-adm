@@ -23,11 +23,36 @@ function setView(v){
   if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
   renderAll();
 }
+function pedirSenhaEspaco(p){
+  return new Promise(res => {
+    let ok = false;
+    overlay(`<div class="mhead"><div class="mt">🔒 Espaço de ${esc(p.nome)}</div><button class="x" data-close>×</button></div>
+      <form class="mbody" id="unF"><p style="margin-top:0">${esc(p.nome)} é administrador(a). Para abrir a agenda e o kanban dessa pessoa, digite a <b>senha dela</b>.</p>
+        <input class="fld" type="password" id="unP" placeholder="Senha de ${esc(p.nome)}" autocomplete="off">
+        <div class="err" id="unE" style="margin-top:8px"></div>
+        <p class="note">O acesso fica liberado por 2 horas (ou até você sair).</p>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" id="unOk">Abrir espaço</button></div></form>`, "small", { onClose: () => res(ok) });
+    setTimeout(() => $("#unP").focus(), 30);
+    $("#unF").onsubmit = async e => {
+      e.preventDefault(); const b = $("#unOk"); b.disabled = true; $("#unE").textContent = "";
+      try { ok = await API.rpc("liberar_espaco", { p_alvo: p.id, p_senha: $("#unP").value }); } catch(ex){ $("#unE").textContent = errMsg(ex); }
+      if (ok){ closeModal(true); return; }
+      if (!$("#unE").textContent) $("#unE").textContent = "Senha incorreta.";
+      b.disabled = false; $("#unP").select();
+    };
+  });
+}
 async function setSpace(id){
+  const alvo = S.perfis.find(x => x.id === id);
+  if (alvo && id !== S.me.id && alvo.papel === "admin"){
+    let ok = false; try { ok = await API.rpc("espaco_liberado", { p_alvo: id }); } catch {}
+    if (!ok && !(await pedirSenhaEspaco(alvo))){ renderHeader(); return false; }
+  }
   S.space = id; S.selected.clear();
   try { sessionStorage.setItem("cu_space", id); } catch {}
   renderHeader();
   await reloadSpace(true);
+  return true;
 }
 function renderHeader(){
   document.body.classList.toggle("is-admin", isAdmin());
@@ -77,7 +102,8 @@ async function startApp(uid){
   if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
   loadEquipeGoogle();
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
-  let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); if (s && S.perfis.find(p => p.id === s)) sp = s; } catch {}
+  let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); const ps = S.perfis.find(p => p.id === s);
+    if (ps && (ps.papel !== "admin" || ps.id === me.id || await API.rpc("espaco_liberado", { p_alvo: s }).catch(() => false))) sp = s; } catch {}
   S.space = sp;
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
@@ -104,6 +130,7 @@ function showLogin(msg){
 }
 async function logout(){
   closeModal(true); clearTimeout(idleT); idleT = null;
+  try { if (S.me && S.me.papel === "admin") await API.rpc("travar_espacos", {}); } catch {}
   await API.logout();
   gClear(); S.me = null; S.demandas = []; S.eventos = []; S.all = null; S.perfis = [];
   try { sessionStorage.removeItem("cu_space"); } catch {}
