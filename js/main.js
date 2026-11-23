@@ -11,6 +11,7 @@ function renderAll(){
   else if (S.view === "parados") renderParados();
   else if (S.view === "equipe") renderEquipe();
   else if (S.view === "notas") renderNotas();
+  else if (S.view === "arquivos") renderArquivos();
   renderBatch();
   if (K.openId && modalOpen()) refreshDemandaModal();
 }
@@ -81,7 +82,7 @@ async function startApp(uid){
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
   renderHeader();
   const h = location.hash.slice(1);
-  setView(["agenda","kanban","notas","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
+  setView(["agenda","kanban","notas","arquivos","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
   await reloadSpace(true);
   resetIdle();
 }
@@ -183,7 +184,7 @@ $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view
 $("#spaceSel").addEventListener("change", e => setSpace(e.target.value));
 $("#search").addEventListener("input", e => { S.q = e.target.value; renderAll(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && modalOpen()) closeModal(); });
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","notas","parados","finalizadas","equipe"].includes(h)) setView(h); });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","notas","arquivos","parados","finalizadas","equipe"].includes(h)) setView(h); });
 
 /* ---------- inatividade e atualização ---------- */
 let idleT = null;

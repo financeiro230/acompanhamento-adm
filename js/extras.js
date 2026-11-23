@@ -13,6 +13,7 @@ const cardColor = cor => cor ? { cls: " colored", st: ` style="--cc:${esc(cor)}"
 const fmtSize = n => !n ? "" : n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1).replace(".", ",") + " MB";
 function anxIcon(a){
   const t = (a.tipo || "") + " " + (a.nome || "").toLowerCase();
+  if (a.tipo === "link") return "🔗";
   if (/image/.test(t)) return "🖼"; if (/pdf/.test(t)) return "📕"; if (/sheet|excel|\.xls|\.csv/.test(t)) return "📗";
   if (/word|document|\.doc/.test(t)) return "📘"; if (/presentation|powerpoint|\.ppt/.test(t)) return "📙";
   if (/zip|rar|compressed/.test(t)) return "🗜"; if (/video/.test(t)) return "🎞"; if (/audio/.test(t)) return "🎵"; return "📄";
@@ -60,8 +61,8 @@ async function driveFolder(){
   DRV.folder = { id, email: G.email };
   return id;
 }
-async function driveUpload(file, onProg){
-  const folder = await driveFolder();
+async function driveUpload(file, onProg, parent){
+  const folder = parent || await driveFolder();
   const meta = { name: file.name, parents: [folder] };
   const fields = "id,name,mimeType,size,webViewLink";
   let f;
@@ -98,7 +99,10 @@ function anexosHtml(kind, id){
       <span class="anxm">${[fmtSize(a.tamanho), a.por, fmtD(a.em)].filter(Boolean).map(esc).join(" · ")}</span>
       <button type="button" class="ckb del" data-anxrm="${esc(a.id)}" title="Tirar do item (o arquivo continua no Drive de quem anexou)">×</button></li>`).join("")}</ul>` : ""}
     <div class="anxbar">${driveReady() ? `<button type="button" class="btn sm" data-anxadd>📎 Anexar arquivo</button>` : `<button type="button" class="btn sm" data-anxcon>📎 Conectar Google Drive para anexar</button>`}
+      <button type="button" class="btn sm ghost" data-anxlink>🔗 Link</button>
       <span class="note">Fica no seu Google Drive, na pasta "${DRIVE_FOLDER}"</span></div>
+    <div class="anxlf" hidden data-nodirty><input class="fld" data-alu placeholder="Cole o link (Google Drive, planilha, site…)"><input class="fld" data-alt placeholder="Título (opcional)" maxlength="200">
+      <div class="row"><button type="button" class="btn sm primary" data-alok>Anexar link</button><button type="button" class="btn sm ghost" data-alcancel>Cancelar</button></div></div>
     <input type="file" multiple hidden data-anxfile><div class="anxprog note"></div></div>`;
 }
 function refreshAnx(kind, id){
@@ -127,6 +131,18 @@ document.addEventListener("click", async e => {
     return;
   }
   if (e.target.closest("[data-anxadd]")){ box.querySelector("[data-anxfile]").click(); return; }
+  if (e.target.closest("[data-anxlink]")){
+    const f = box.querySelector(".anxlf"); f.hidden = !f.hidden; if (!f.hidden) f.querySelector("[data-alu]").focus(); return;
+  }
+  if (e.target.closest("[data-alcancel]")){ box.querySelector(".anxlf").hidden = true; return; }
+  if (e.target.closest("[data-alok]")){
+    const f = box.querySelector(".anxlf"); let u = f.querySelector("[data-alu]").value.trim(); if (!u){ f.querySelector("[data-alu]").focus(); return; }
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    const t = f.querySelector("[data-alt]").value.trim() || u.replace(/^https?:\/\//, "").slice(0, 80);
+    const it = anxItem(kind, id); if (!it) return;
+    await saveAnexos(kind, id, [...(it.anexos || []), { id: "l" + Date.now().toString(36), nome: t, tipo: "link", link: u, por: S.me.nome, por_id: S.me.id, em: Date.now() }], "Link anexado: " + t);
+    toast("Link anexado."); return;
+  }
   const rm = e.target.closest("[data-anxrm]");
   if (rm){
     const it = anxItem(kind, id); const a = ((it && it.anexos) || []).find(x => x.id === rm.dataset.anxrm); if (!a) return;
@@ -313,3 +329,93 @@ function openNota(id, lista){
   });
   setTimeout(() => { const el = orig ? null : (modoLista ? ov.querySelector("[data-nit]") : $("#nTx")); el && el.focus(); }, 30);
 }
+
+/* ===================== KANBAN: mover e inserir quadros direto no quadro ===================== */
+const canMoveCols = () => isOwnSpace() && !isMob();
+let colDrag = null;
+async function saveColsList(list, msg){
+  const p = prefs(); p.colunas = list; await savePrefs(p); applySpaceCols(); renderAll(); if (msg) toast(msg);
+}
+document.addEventListener("dragstart", e => {
+  const h = e.target.closest && e.target.closest("[data-colkey]"); if (!h) return;
+  colDrag = h.dataset.colkey; h.closest(".col").classList.add("coldragging");
+  try { e.dataTransfer.setData("text/plain", "col:" + colDrag); e.dataTransfer.effectAllowed = "move"; } catch {}
+});
+document.addEventListener("dragend", () => { colDrag = null; $$(".coldragging,.colbefore,.colafter").forEach(x => x.classList.remove("coldragging","colbefore","colafter")); });
+const colDropSide = (col, e) => { const r = col.getBoundingClientRect(); const lat = col.closest(".stack");
+  return lat ? (e.clientY < r.top + r.height / 2 ? "before" : "after") : (e.clientX < r.left + r.width / 2 ? "before" : "after"); };
+document.addEventListener("dragover", e => {
+  if (!colDrag) return; const col = e.target.closest && e.target.closest(".col[data-col]"); if (!col) return;
+  e.preventDefault(); const side = colDropSide(col, e);
+  $$(".colbefore,.colafter").forEach(x => x.classList.remove("colbefore","colafter"));
+  if (col.dataset.col !== colDrag) col.classList.add(side === "before" ? "colbefore" : "colafter");
+});
+document.addEventListener("drop", e => {
+  if (!colDrag) return; const col = e.target.closest && e.target.closest(".col[data-col]"); if (!col) return;
+  e.preventDefault(); const from = colDrag, to = col.dataset.col, side = colDropSide(col, e); colDrag = null;
+  if (from === to) return;
+  const list = COLS.map(c => ({ ...c })), item = list.find(c => c.key === from), tgt = list.find(c => c.key === to);
+  list.splice(list.indexOf(item), 1);
+  item.lado = tgt.lado === "lateral" ? "lateral" : "principal";
+  list.splice(list.indexOf(tgt) + (side === "after" ? 1 : 0), 0, item);
+  if (!list.some(c => c.lado !== "lateral")){ toast("Deixe pelo menos um quadro na área principal.", true); return; }
+  saveColsList(list, `"${item.label}" mudou de lugar.`);
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-colins]"); if (!b) return;
+  e.stopPropagation(); openNewCol(b.dataset.colins);
+});
+function openNewCol(afterKey){
+  const after = COLS.find(c => c.key === afterKey);
+  const ov = overlay(`<div class="mhead"><div class="mt">＋ Novo quadro</div><button class="x" data-close>×</button></div>
+    <form class="mbody" id="ncForm">
+      <label class="f">Nome do quadro</label><input class="fld" id="ncN" maxlength="60" placeholder="Ex.: Aguardando fornecedor" required>
+      <label class="f" style="margin-top:12px">Cor</label>${swatchesHtml(CORES[COLS.length % CORES.length], "nccor")}
+      <label class="f" style="margin-top:12px">Onde fica</label>
+      <select class="fld" id="ncPos">${COLS.map(c => `<option value="${c.key}" ${c.key === afterKey ? "selected" : ""}>Depois de "${esc(c.label)}"${c.lado === "lateral" ? " (coluna lateral)" : ""}</option>`).join("")}<option value="__ini">No começo da área principal</option></select>
+      <p class="note">Dica: no computador, arraste o título de qualquer quadro (⠿) para mudar de lugar.</p>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Criar quadro</button></div>
+    </form>`, "small");
+  setTimeout(() => $("#ncN").focus(), 30);
+  $("#ncForm").onsubmit = ev => {
+    ev.preventDefault(); const label = $("#ncN").value.trim(); if (!label) return;
+    const list = COLS.map(c => ({ ...c })), pos = $("#ncPos").value;
+    const ref = list.find(c => c.key === pos);
+    const nc = { key: "q_" + Math.random().toString(36).slice(2, 8), label, color: swValue(ov, "nccor") || CORES[0], lado: ref && ref.lado === "lateral" ? "lateral" : "principal" };
+    if (pos === "__ini"){ const i = list.findIndex(c => c.lado !== "lateral"); list.splice(i < 0 ? 0 : i, 0, nc); }
+    else list.splice(list.indexOf(ref) + 1, 0, nc);
+    closeModal(true); if (isMob()) K.mcol = nc.key;
+    saveColsList(list, `Quadro "${label}" criado.`);
+  };
+}
+
+/* ===================== HISTÓRICO: ler mais / ler menos ===================== */
+const TL_SHOW = 4, TL_OPEN = new Set();
+const tlKey = ul => (ul.id || "tl") + "|" + ((ul.closest("[data-eupdbox]") || {}).dataset?.eupdbox || K.openId || "");
+function tidyTimelines(){
+  $$("ul.timeline:not([data-tlx])").forEach(ul => {
+    ul.dataset.tlx = "1";
+    const lis = [...ul.children].filter(li => li.tagName === "LI" && !li.classList.contains("tlmore"));
+    lis.forEach(li => {
+      const w = li.querySelector(".tl-what"); if (!w || w.querySelector("textarea")) return;
+      w.classList.add("clamp");
+      if (w.scrollHeight > w.clientHeight + 2){
+        const b = document.createElement("button"); b.type = "button"; b.className = "lnk tlread"; b.textContent = "ler mais";
+        b.onclick = ev => { ev.stopPropagation(); const o = w.classList.toggle("clamp"); b.textContent = o ? "ler mais" : "ler menos"; };
+        w.after(b);
+      } else w.classList.remove("clamp");
+    });
+    if (lis.length <= TL_SHOW) return;
+    const key = tlKey(ul), apply = () => { const open = TL_OPEN.has(key); lis.forEach((li, i) => li.classList.toggle("tlhide", !open && i >= TL_SHOW));
+      more.querySelector("button").textContent = open ? "▴ Ver menos" : `▾ Ver mais (${lis.length - TL_SHOW} anteriores)`; };
+    const more = document.createElement("li"); more.className = "tlmore"; more.innerHTML = `<button type="button" class="btn ghost sm"></button>`;
+    more.querySelector("button").onclick = ev => { ev.stopPropagation(); TL_OPEN.has(key) ? TL_OPEN.delete(key) : TL_OPEN.add(key); apply(); };
+    ul.appendChild(more); apply();
+  });
+}
+let tlRaf = 0;
+new MutationObserver(() => { if (!tlRaf) tlRaf = requestAnimationFrame(() => { tlRaf = 0; tidyTimelines(); }); })
+  .observe(document.getElementById("modalRoot"), { childList: true, subtree: true });
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.matches && e.target.matches("[data-alu],[data-alt]")){ e.preventDefault(); e.target.closest(".anxlf").querySelector("[data-alok]").click(); }
+}, true);

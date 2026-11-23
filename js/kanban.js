@@ -91,14 +91,14 @@ function renderKanban(){
          <div class="row"><button class="btn primary sm" data-act="inlsave">Adicionar</button><button class="btn ghost sm" data-act="inlcancel">Cancelar</button></div></div>`
       : `<button class="btn ghost sm addbtn" data-act="inl" data-col="${c.key}">＋ Adicionar</button>`;
     return `<section class="col" data-col="${c.key}">
-      <div class="colhead"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}<span class="count">${list.length}</span></div>
+      <div class="colhead" ${canMoveCols() ? `draggable="true" data-colkey="${c.key}" title="Arraste para mudar este quadro de lugar"` : ""}>${canMoveCols() ? `<span class="grip">⠿</span>` : ""}<span class="dot" style="background:${c.color}"></span>${esc(c.label)}<span class="count">${list.length}</span>${canMoveCols() ? `<button class="colins" data-colins="${c.key}" title="Criar um quadro novo logo depois deste">＋</button>` : ""}</div>
       <div class="cards">${cards}</div>${add}</section>`;
   };
   const lat = COLS.filter(c => c.lado === "lateral"), pri = COLS.filter(c => c.lado !== "lateral");
   const mob = isMob();
   if (mob && !COLS.find(c => c.key === K.mcol)) K.mcol = firstMain();
   const cnt = c => S.demandas.filter(i => i.status === c.key && matchesSearch(i) && matchesFilter(i)).length;
-  const mobCols = () => `<div class="mcols">${[...pri, ...lat].map(c => `<button data-mcol="${c.key}" class="${K.mcol === c.key ? "on" : ""}"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}<b>${cnt(c)}</b></button>`).join("")}</div>
+  const mobCols = () => `<div class="mcols">${[...pri, ...lat].map(c => `<button data-mcol="${c.key}" class="${K.mcol === c.key ? "on" : ""}"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}<b>${cnt(c)}</b></button>`).join("")}${isOwnSpace() ? `<button data-colins="${K.mcol}" title="Novo quadro">＋</button>` : ""}</div>
     <div class="board mob">${colHtml(COLS.find(c => c.key === K.mcol))}</div>`;
   const ncols = pri.length + (lat.length ? 1 : 0);
   const total = S.demandas.filter(d => d.status !== FIN).length, shown = S.demandas.filter(d => d.status !== FIN && matchesSearch(d) && matchesFilter(d)).length;

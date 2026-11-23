@@ -7,6 +7,7 @@ const REC = { nenhuma:"Não repete", diaria:"Todo dia", dias_uteis:"Dias úteis 
 const getE = id => S.eventos.find(e => e.id === id) || (S.atribuidas || []).find(e => e.id === id);
 const toMin = t => { if (!t) return null; const [h,m] = t.split(":").map(Number); return h*60+m; };
 const minToHm = m => `${pad(Math.floor(m/60))}:${pad(m%60)}`;
+const showFinalDemandas = () => A.filt.final !== undefined ? A.filt.final : prefs().agFinal !== false;
 const showDoneMissions = () => A.filt.concl !== undefined ? A.filt.concl : prefs().agConcluidas !== false;
 const defColor = tipo => tipo === "missao" ? prefs().corMissao : tipo === "prazo" ? prefs().corPrazo : prefs().corEvento;
 
@@ -79,6 +80,14 @@ function instances(from, to){
         out.push({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, start:null, end:null,
           title:c.texto, sub:d.titulo, color:defColor("prazo"), done:false, late: c.prazo < today });
       }
+    }
+  }
+  if (showFinalDemandas()){
+    for (const d of S.demandas){
+      if (d.status !== FIN || !d.finalizado_em) continue;
+      const dt = ymd(new Date(d.finalizado_em)); if (dt < from || dt > to) continue;
+      out.push({ key:`d|${d.id}|f${dt}`, kind:"final", id:d.id, date:dt, allDay:true, start:null, end:null,
+        title:d.titulo, color:"var(--ok)", done:true, late:false, hora:new Date(d.finalizado_em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) });
     }
   }
   out.push(...gInstances(from, to));
@@ -226,6 +235,7 @@ function renderSide(){
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
       <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban e passos</label>
+      <label class="chk"><input type="checkbox" data-filt="final" ${showFinalDemandas()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Demandas finalizadas (histórico)</label>
       <label class="chk"><input type="checkbox" data-filt="concl" ${showDoneMissions()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Missões concluídas</label>
       ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
@@ -238,6 +248,7 @@ function chipHtml(i){
   const tip = `${i.title}${i.allDay ? "" : " · " + minToHm(i.start)}`;
   const cls = ["chip", i.done ? "done" : "", i.late ? "late" : ""];
   if (i.kind === "google") return `<button class="chip ${i.done?"done":""} ${i.allDay?"solid":""}" data-inst="${i.key}" style="${i.allDay?`background:${i.color}`:"color:var(--ink)"};${i.pend?`outline:1.5px dashed ${i.color};outline-offset:-1.5px;`:""}" title="Google Agenda: ${esc(tip)}${i.pend?" (convite sem resposta)":""}">${i.allDay?"":`<span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span>`}<span class="t">${i.pend?"✉ ":""}${esc(i.title)}</span></button>`;
+  if (i.kind === "final") return `<button class="chip final" data-inst="${i.key}" title="Demanda finalizada às ${i.hora}: ${esc(i.title)}"><span class="t">✔ ${esc(i.title)}</span></button>`;
   if (i.kind === "passo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Passo do checklist: ${esc(i.title)} — ${esc(i.sub)}"><span class="t">☑ ${esc(i.title)}</span></button>`;
   if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo do kanban: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
   if (i.kind === "limite") return `<button class="chip ${i.late?"late":""}" data-inst="${i.key}" style="color:${i.color};background:${i.color}1f;border:1px dashed ${i.color}" title="Prazo final da missão: ${esc(i.title)}"><span class="t">⏰ Prazo: ${esc(i.title)}</span></button>`;
@@ -317,9 +328,9 @@ function listHtml(){
   const by = {}; inst.forEach(i => (by[i.date] = by[i.date] || []).push(i));
   const row = i => {
     const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" || i.kind==="passo" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
-    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
+    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="final"?`Demanda finalizada às ${i.hora}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
-      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
+      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="final"?"✔":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;
   };
   let h = "";
@@ -338,6 +349,7 @@ function listHtml(){
 document.addEventListener("change", e => {
   const f = e.target.closest("[data-filt]"); if (!f) return;
   A.filt[f.dataset.filt] = f.checked; renderAgenda();
+  if (f.dataset.filt === "final"){ const p = prefs(); p.agFinal = f.checked; savePrefs(p); }
   if (f.dataset.filt === "concl"){ const p = prefs(); p.agConcluidas = f.checked; savePrefs(p); toast(f.checked ? "Missões concluídas aparecem na agenda." : "Missões concluídas escondidas da agenda."); }
 });
 document.addEventListener("click", e => {
@@ -526,7 +538,7 @@ function openEvento(id, pre = {}, dateCtx = null){
   })() : "";
   const quem = ev && ev.criado_por && ev.criado_por !== ev.dono ? ((ev.historico||[]).find(h => h.tipo === "criado" && h.por) || {}).por || (pessoa(ev.criado_por) || {}).nome : null;
   const atribBox = ev && (quem || ev.dono !== S.me.id) ? `<p class="note" style="margin:-4px 0 12px">${quem ? `📤 Atribuída por <b>${esc(quem)}</b>` : ""}${ev.dono !== S.me.id && pessoa(ev.dono) ? `${quem ? " · " : ""}Para <b>${esc(pessoa(ev.dono).nome)}</b>` : ""}</p>` : "";
-  const hist = ev && (ev.historico||[]).length ? `<div class="section"><h3>🕓 Histórico</h3><ul class="timeline">${[...ev.historico].sort((a,z)=>z.em-a.em).map(x => `<li class="${x.tipo}"><div class="tl-when">${fmt(x.em)}${x.por?" · por "+esc(x.por):""}</div><div class="tl-what">${esc(x.texto)}</div></li>`).join("")}</ul></div>` : "";
+  const hist = ev && (ev.historico||[]).length ? `<div class="section"><h3>🕓 Histórico</h3><ul class="timeline" id="evTl">${[...ev.historico].sort((a,z)=>z.em-a.em).map(x => `<li class="${x.tipo}"><div class="tl-when">${fmt(x.em)}${x.por?" · por "+esc(x.por):""}</div><div class="tl-what">${esc(x.texto)}</div></li>`).join("")}</ul></div>` : "";
   const recLabel = (k, w) => k === "semanal" ? `Toda semana (${w.toLocaleDateString("pt-BR",{weekday:"long"})})` : k === "mensal" ? `Todo mês (dia ${w.getDate()})` : k === "anual" ? `Todo ano (${w.toLocaleDateString("pt-BR",{day:"numeric",month:"long"})})` : REC[k];
   const recOpts = (w, v) => Object.keys(REC).map(k => `<option value="${k}" ${v===k?"selected":""}>${esc(recLabel(k, w))}</option>`).join("");
   const hasFim = !!d.data_fim;
