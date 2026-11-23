@@ -46,7 +46,7 @@ function driveConnect(){
 }
 async function dFetch(url, opts = {}){
   const r = await fetch(url, { ...opts, headers: { Authorization: "Bearer " + G.token, ...(opts.headers || {}) } });
-  if (r.status === 401){ G.scopes = ""; throw new Error('A conexão com o Google expirou. Clique em "Conectar Google Drive" e tente de novo.'); }
+  if (r.status === 401){ G.token = null; G.exp = 0; G.scopes = ""; try { localStorage.removeItem(gKey()); } catch {} gRenew(); throw new Error('A conexão com o Google expirou. Clique de novo em um instante (o site está renovando) ou em "Reconectar Google Drive".'); }
   if (!r.ok){ let m = r.statusText; try { m = (await r.json()).error.message; } catch {} throw new Error(m); }
   return r.status === 204 ? null : r.json();
 }
@@ -199,7 +199,7 @@ function evUpdHtml(id){
   const ev = getE(id), notes = ((ev && ev.historico) || []).filter(h => h.tipo === "nota").sort((a, z) => z.em - a.em);
   return `<div class="evupd" data-eupdbox="${id}" data-nodirty>
     <div class="upd"><input class="fld" data-eupdin placeholder="Registrar andamento… (Enter)"><button type="button" class="btn sm primary" data-eupd>Registrar</button></div>
-    ${notes.length ? `<ul class="timeline" style="margin-top:8px">${notes.map(n => `<li class="nota"><div class="tl-when">${fmt(n.em)}${n.por ? " · " + esc(n.por) : ""}</div><div class="tl-what">${esc(n.texto)}</div></li>`).join("")}</ul>`
+    ${notes.length ? `<ul class="timeline" style="margin-top:8px">${notes.map(n => `<li class="nota"><div class="tl-when">${fmt(n.em)}${n.por ? " · " + esc(n.por) : ""}${n.editadoEm ? ` <span class="note">(editada)</span>` : ""}<span class="nacts updacts"><button type="button" data-eupe="${n.em}" title="Editar">✏️</button><button type="button" data-eupx="${n.em}" title="Excluir">🗑</button></span></div><div class="tl-what">${esc(n.texto)}</div></li>`).join("")}</ul>`
       : `<p class="note" style="margin:6px 0 0">Nenhuma atualização ainda.</p>`}</div>`;
 }
 async function addNoteE(id, texto){
@@ -222,13 +222,13 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.ma
 /* ===================== NOTAS (estilo Google Keep) ===================== */
 const NOTE_CORES = [null, "#f28b82", "#fbbc04", "#fff475", "#ccff90", "#a7ffeb", "#cbf0f8", "#aecbfa", "#d7aefb", "#fdcfe8", "#e6c9a8", "#e8eaed"];
 const NOTE_NOMES = ["Padrão", "Vermelho", "Laranja", "Amarelo", "Verde", "Verde-água", "Azul-claro", "Azul", "Roxo", "Rosa", "Marrom", "Cinza"];
-const N = { q: "", arq: false, loaded: false };
+const N = { q: "", arq: false, loaded: false, lab: "" };
 async function loadNotas(){
   try { S.notas = await API.list("notas", S.me.id); N.loaded = true; }
   catch(e){ S.notas = S.notas || []; N.err = errMsg(e); }
 }
-const noteMatch = n => { const q = N.q.trim().toLowerCase(); if (!q) return true;
-  return (n.titulo + " " + n.texto + " " + (n.itens || []).map(i => i.texto).join(" ")).toLowerCase().includes(q); };
+const noteMatch = n => { if (N.lab && !(n.marcadores || []).includes(N.lab)) return false; const q = N.q.trim().toLowerCase(); if (!q) return true;
+  return (n.titulo + " " + n.texto + " " + (n.itens || []).map(i => i.texto).join(" ") + " " + (n.marcadores || []).join(" ")).toLowerCase().includes(q); };
 const noteEmpty = n => !n.titulo.trim() && !n.texto.trim() && !(n.itens || []).some(i => i.texto.trim());
 function noteCard(n){
   const it = n.itens || [], pend = it.filter(i => !i.feito), done = it.filter(i => i.feito);
@@ -239,6 +239,7 @@ function noteCard(n){
     ${n.texto ? `<div class="ntxt">${esc(n.texto)}</div>` : ""}
     ${it.length ? `<ul class="nitems">${show.map(i => `<li class="${i.feito ? "done" : ""}"><input type="checkbox" data-nck="${n.id}|${i.id}" ${i.feito ? "checked" : ""}><span>${esc(i.texto)}</span></li>`).join("")}</ul>
       ${it.length > show.length ? `<div class="note">+ ${it.length - show.length} item(ns)</div>` : ""}` : ""}
+    ${(n.marcadores || []).length ? `<div class="nlabels">${n.marcadores.map(l => `<span class="nlabel" data-nlabf="${esc(l)}">🏷 ${esc(l)}</span>`).join("")}</div>` : ""}
     <div class="nfoot"><span class="note">${fmtD(n.atualizado_em)}</span><span class="nacts">
       <button data-narq="${n.id}" title="${n.arquivada ? "Desarquivar" : "Arquivar"}">${n.arquivada ? "📤" : "🗄"}</button>
       <button data-ndelx="${n.id}" title="Excluir">🗑</button></span></div></article>`;
@@ -254,6 +255,7 @@ function renderNotas(){
       <div class="ksearch"><span>🔎</span><input id="nSearch" placeholder="Pesquisar nas notas…" value="${esc(N.q)}"></div>
       <div class="seg"><button data-narqv="0" class="${!N.arq ? "on" : ""}">📝 Notas</button><button data-narqv="1" class="${N.arq ? "on" : ""}">🗄 Arquivadas${narq ? ` (${narq})` : ""}</button></div>
     </div>
+    ${notaLabels().length ? `<div class="nlabbar"><button class="nlabel ${!N.lab ? "on" : ""}" data-nlabf="">Todas</button>${notaLabels().map(l => `<button class="nlabel ${N.lab === l ? "on" : ""}" data-nlabf="${esc(l)}">🏷 ${esc(l)}</button>`).join("")}</div>` : ""}
     ${!N.arq ? `<div class="ncompose"><button class="ncin" data-nnew="texto">Criar uma nota…</button><button class="btn ghost" data-nnew="lista" title="Nova lista">☑ Lista</button></div>` : ""}
     ${!isOwnSpace() ? `<p class="note" style="text-align:center">As notas são pessoais: aqui aparecem sempre as suas, nunca as de outra pessoa.</p>` : ""}
     ${fix.length ? `<h5 class="nsec">📌 Fixadas</h5><div class="ngrid">${fix.map(noteCard).join("")}</div>${outras.length ? `<h5 class="nsec">Outras</h5>` : ""}` : ""}
@@ -285,14 +287,16 @@ document.addEventListener("click", e => {
   const dl = t.closest("[data-ndelx]"); if (dl){ delNota(dl.dataset.ndelx); return; }
   const ck = t.closest("[data-nck]");
   if (ck){ const [nid, iid] = ck.dataset.nck.split("|"); const n = clone(getN(nid)); const i = n.itens.find(x => x.id === iid); i.feito = ck.checked; saveNota(n); return; }
-  const card = t.closest("[data-nota]"); if (card) openNota(card.dataset.nota);
+  const lf = t.closest("[data-nlabf]"); if (lf){ N.lab = N.lab === lf.dataset.nlabf ? "" : lf.dataset.nlabf; renderNotas(); return; }
+  const card = t.closest("[data-nota]"); if (card) openNotaView(card.dataset.nota);
 });
 
 function openNota(id, lista){
   const orig = id ? S.notas.find(x => x.id === id) : null;
   const now = Date.now();
   const d = orig ? clone(orig) : { id: uuid(), dono: S.me.id, titulo: "", texto: "", cor: null, fixada: false, arquivada: false, itens: [], criado_em: now, atualizado_em: now };
-  d.itens = d.itens || [];
+  d.itens = d.itens || []; d.marcadores = d.marcadores || [];
+  if (!orig && N.lab) d.marcadores.push(N.lab);
   let modoLista = orig ? d.itens.length > 0 : !!lista;
   if (modoLista && !d.itens.length) d.itens.push({ id: uuid(), texto: "", feito: false });
   const snap = JSON.stringify(d);
@@ -306,6 +310,7 @@ function openNota(id, lista){
   const ov = overlay(`<div class="nedit" ${d.cor ? `style="--nc:${d.cor}"` : ""} id="nEd">
     <div class="nedhead"><input class="ntitle" id="nTi" placeholder="Título" value="${esc(d.titulo)}"><button type="button" class="npin ${d.fixada ? "on" : ""}" id="nPin" title="Fixar">📌</button></div>
     <div id="nBody">${body()}</div>
+    <div id="nLabBox">${labelsEditorHtml(d.marcadores)}</div>
     <div class="nfoot" style="margin-top:12px">
       <div class="ncolors">${NOTE_CORES.map((c, i) => `<button type="button" class="ncol ${(d.cor || null) === c ? "on" : ""}" data-ncor="${c || ""}" title="${NOTE_NOMES[i]}" style="${c ? `background:${c}` : ""}"></button>`).join("")}</div>
       <span class="nacts">
@@ -333,12 +338,16 @@ function openNota(id, lista){
     const k = e.target.dataset && e.target.dataset.nit;
     if (k && e.key === "Enter"){ e.preventDefault(); addItem(k); }
     if (k && e.key === "Backspace" && !e.target.value && d.itens.length > 1){ e.preventDefault(); const idx = d.itens.findIndex(x => x.id === k); d.itens.splice(idx, 1); redraw(); const prev = d.itens[Math.max(0, idx - 1)]; prev && focusItem(prev.id); }
+    if (e.target.id === "nLabIn" && e.key === "Enter"){ e.preventDefault(); const v = e.target.value.trim().replace(/\s+/g, " ");
+      if (v && !d.marcadores.some(x => x.toLowerCase() === v.toLowerCase())) d.marcadores.push(notaLabels().find(x => x.toLowerCase() === v.toLowerCase()) || v);
+      $("#nLabBox").innerHTML = labelsEditorHtml(d.marcadores); $("#nLabIn").focus(); return; }
     if (e.target.id === "nTi" && e.key === "Enter"){ e.preventDefault(); const nx = ov.querySelector("#nTx, [data-nit]"); nx && nx.focus(); }
   });
   ov.addEventListener("click", e => {
     const t = e.target;
     const c = t.closest("[data-ncor]");
     if (c){ d.cor = c.dataset.ncor || null; [...ov.querySelectorAll(".ncol")].forEach(x => x.classList.toggle("on", x === c)); const ed = $("#nEd"); d.cor ? ed.style.setProperty("--nc", d.cor) : ed.style.removeProperty("--nc"); return; }
+    const lr = t.closest("[data-nlrm]"); if (lr){ d.marcadores = d.marcadores.filter(x => x !== lr.dataset.nlrm); $("#nLabBox").innerHTML = labelsEditorHtml(d.marcadores); return; }
     if (t.closest("#nPin")){ d.fixada = !d.fixada; if (d.fixada) d.arquivada = false; $("#nPin").classList.toggle("on", d.fixada); return; }
     if (t.closest("#nArq")){ d.arquivada = !d.arquivada; if (d.arquivada) d.fixada = false; closeModal(true); toast(d.arquivada ? "Nota arquivada." : "Nota de volta às notas."); return; }
     if (t.closest("#nDel")){ delNota(d.id); return; }

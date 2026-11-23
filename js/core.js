@@ -90,6 +90,7 @@ const API = window.API_MOCK || {
   },
   async save(table, row){ const { error } = await sb.from(table).upsert(row); if (error) throw error; },
   async del(table, id){ const { error } = await sb.from(table).delete().eq("id", id); if (error) throw error; },
+  async listShared(uid){ const { data, error } = await sb.from("demandas").select("*").contains("participantes", [uid]).neq("dono", uid); if (error) throw error; return data || []; },
   async listBy(table, field, value){ const { data, error } = await sb.from(table).select("*").eq(field, value); if (error) throw error; return data || []; },
   async rpc(fn, args){ const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
   async getConfig(chave){ const { data, error } = await sb.from("config").select("valor").eq("chave", chave).maybeSingle(); if (error) throw error; return data ? data.valor : null; },

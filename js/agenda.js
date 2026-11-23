@@ -56,7 +56,7 @@ function instances(from, to){
       if (done && !showDoneMissions()) continue;
       const late = ev.tipo === "missao" && !done && (prazoMissao ? prazoMissao < today
         : (date < today || (date === today && !allDay && (end ?? 0) < nowMin)));
-      out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:(ev.pessoal ? "🔒 " : "") + ev.titulo,
+      out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:(ev.pessoal ? "🔒 " : "") + (ev.prioridade === "alta" ? "▲ " : "") + ev.titulo, prio: ev.prioridade || null,
         color: ev.cor || defColor(ev.tipo), done, late, rec: ev.recorrencia !== "nenhuma", local: ev.local, prazo: prazoMissao });
     }
     if (prazoMissao && A.filt.missao && prazoMissao >= from && prazoMissao <= to && !ev.concluida){
@@ -476,7 +476,7 @@ function openEventoPeek(id, date){
     <div class="mhead" style="align-items:center"><div class="mt">${ev.tipo === "missao" ? "🎯" : "📅"} ${esc(ev.titulo)}</div>
       <button class="x" data-pe="edit" title="Editar">✏️</button><button class="x" data-pe="del" title="Excluir">🗑</button><button class="x" data-close title="Fechar">×</button></div>
     <div class="mbody">
-      <div style="margin-bottom:6px">🕒 ${esc(when)}</div>
+      <div style="margin-bottom:6px">🕒 ${esc(when)}${ev.prioridade ? " " + prioTag(ev.prioridade, true) : ""}</div>
       ${recText(ev) ? `<div class="note" style="margin-bottom:6px">↻ ${esc(recText(ev))}</div>` : ""}
       ${ev.tipo === "missao" && ev.recorrencia === "nenhuma" && ev.data_fim ? `<div style="margin-bottom:6px">⏰ Prazo final: ${fmtYmd(ev.data_fim,{day:"2-digit",month:"2-digit",year:"numeric"})}</div>` : ""}
       ${ev.local ? `<div style="margin-bottom:6px">📍 ${esc(ev.local)}</div>` : ""}
@@ -587,15 +587,18 @@ function openEvento(id, pre = {}, dateCtx = null){
       <div class="section"><label class="f">📎 Anexos</label>${anexosHtml("e", ev.id)}</div>`
         : `<p class="note section">💬 Atualizações e 📎 anexos ficam disponíveis depois de salvar o compromisso.</p>`}
       ${(!ev ? S.space === S.me.id : (ev.dono === S.me.id && !ev.grupo)) ? `<div class="section"><label class="chk"><input type="checkbox" id="evPes" ${d.pessoal ? "checked" : ""}> 🔒 <b>Pessoal</b> — só você vê (não aparece para administradores nem para quem atribui)</label></div>` : ""}
+      <div class="section"><label class="f">Prioridade</label><select class="fld" id="evPri" style="max-width:220px"><option value="">— Sem prioridade</option>${Object.keys(PRIO).map(k => `<option value="${k}" ${d.prioridade === k ? "selected" : ""}>${PRIO[k].i} ${PRIO[k].l}</option>`).join("")}</select></div>
+      ${ev ? evPessoasHtml(ev) : ""}
       <div class="section"><label class="f">Cor</label><div id="evCorBox">${swatchesHtml(d.cor, "cor", defColor(d.tipo))}</div>
         <p class="note" style="margin:6px 0 0">A primeira opção (quadriculada) segue a cor padrão, que você muda em 🎨 Aparência. As outras deixam a cor fixa.</p></div>
-      ${ev ? (isAdmin() && !ev.grupo ? donoSelectHtml("evO", d.dono) : "") : (canAssign() ? whoHtml(d.dono) : "")}
+      ${ev ? (isAdmin() && !ev.grupo && !evPessoasHtml(ev) ? donoSelectHtml("evO", d.dono) : "") : (canAssign() ? whoHtml(d.dono) : "")}
       ${ev && ev.grupo && ev.tipo === "missao" ? `<div class="section"><label class="chk"><input type="checkbox" id="evConjEdit" ${ev.conclusao_conjunta?"checked":""}> Conclusão em conjunto: quando uma pessoa concluir, conclui para todos</label></div>` : ""}
       ${hist}
     </form>
     <div class="mfoot">${ev ? `<button class="btn danger" id="evDel">${ev.grupo ? "Excluir para todos" : "Excluir" + (rec ? " (todas)" : "")}</button>` : ""}
       <div class="spacer"></div><button class="btn" data-close>Cancelar</button><button class="btn primary" id="evSave">Salvar</button></div>`, "mid", { dirty: () => dirty });
   loadParticipants(ev, ctx, "#evPart");
+  if (ev) evPessoasLoad(ev);
   const f = $("#evForm");
   f.addEventListener("input", e => { if (!e.target.closest("[data-nodirty],[data-anx]")) dirty = true; });
   let tipo = d.tipo;
@@ -677,7 +680,9 @@ function openEvento(id, pre = {}, dateCtx = null){
     const base = { tipo, titulo, data, data_fim: df && df !== data ? df : null, hora_inicio: hi, hora_fim: hf, local: $("#evL").value.trim(),
       descricao: $("#evDesc").value.trim(), cor: swValue(ov), recorrencia: recV, recorrencia_ate: ra,
       rec_dias: recV === "dias_semana" ? recDias : [], rec_datas: recV === "datas" ? [...new Set(recDatas)].filter(x => x !== data).sort() : [],
-      checklist: d.checklist, atualizado_em: now };
+      checklist: d.checklist, prioridade: $("#evPri").value || null, atualizado_em: now };
+    const pessoasSel = ev ? evPessoasPick() : null;
+    if (pessoasSel && !pessoasSel.length){ toast("Deixe pelo menos uma pessoa no compromisso.", true); return; }
     if (ev && $("#evConjEdit")) base.conclusao_conjunta = $("#evConjEdit").checked;
     if ($("#evPes")){
       base.pessoal = $("#evPes").checked;
@@ -717,8 +722,9 @@ function openEvento(id, pre = {}, dateCtx = null){
       const c = { titulo, descricao: base.descricao, tipo, data, data_fim: base.data_fim, hora_inicio: hi, hora_fim: hf, local: base.local, recorrencia: recV, recorrencia_ate: ra,
         rec_dias: base.rec_dias, rec_datas: base.rec_datas, checklist: base.checklist, meet_link: rows[0].meet_link, google_id: rows[0].google_id, nota: "Editado" };
       if ("conclusao_conjunta" in base) c.conclusao_conjunta = base.conclusao_conjunta;
-      API.rpc("grupo_sync", { g: ev.grupo, c }).catch(e => toast("Não foi possível atualizar para todos: " + errMsg(e), true));
+      await API.rpc("grupo_sync", { g: ev.grupo, c }).catch(e => toast("Não foi possível atualizar para todos: " + errMsg(e), true));
     }
+    if (pessoasSel) evPessoasAplicar(ev, pessoasSel).catch(e => toast("Não foi possível alterar as pessoas: " + errMsg(e), true));
   };
 }
 

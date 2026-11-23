@@ -81,6 +81,7 @@ function memberModal(p){
       <div class="section"><label class="chk"><input type="checkbox" id="mbAtr" ${p && p.pode_atribuir ? "checked" : ""}> Pode atribuir missões e eventos para outras pessoas da equipe</label>
         <p class="note" style="margin:4px 0 0">A pessoa passa a ver a lista de nomes da equipe para escolher em "Para quem" e acompanha o que atribuiu. Ela continua sem ver a agenda ou o kanban dos outros. Administradores já podem.</p></div>
       ${acessoHtml(p)}
+      ${p && p.master ? "" : modulosHtml(p)}
       <div class="section"><label class="f">Cor</label>${swatchesHtml(p ? p.cor : CORES[(S.perfis.length) % CORES.length])}</div>
       <div class="err" id="mbErr" style="margin-top:10px"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" id="mbOk">${novo?"Criar acesso":"Salvar"}</button></div>
@@ -99,6 +100,7 @@ function memberModal(p){
     const nome = $("#mbN").value.trim(), papel = $("#mbR").value, cor = swValue(ov);
     const err = $("#mbErr"); err.textContent = "";
     if (!nome){ err.textContent = "Informe o nome."; return; }
+    if ($(".modbox") && !$$("[data-mod]").some(c => c.checked)){ err.textContent = "Deixe pelo menos uma aba marcada."; return; }
     $("#mbOk").disabled = true;
     try {
       if (novo){
@@ -113,6 +115,7 @@ function memberModal(p){
           if ($("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: id, p_valor: true });
           if ($("#mbG").value.trim()) await API.rpc("admin_definir_google_email", { p_id: id, p_email: $("#mbG").value.trim() });
           await salvarAcesso(id, null, papel);
+          await salvarModulos(id, null);
         } catch(ex2){ aviso = errMsg(ex2); }
         closeModal(true);
         if (aviso) toast(`Acesso criado para ${nome} (usuário: ${usuario}), mas um ajuste não foi salvo: ${aviso}. Abra "Editar" para conferir.`, true);
@@ -122,6 +125,7 @@ function memberModal(p){
         if (!!p.pode_atribuir !== $("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: p.id, p_valor: $("#mbAtr").checked });
         if ((p.google_email || "") !== $("#mbG").value.trim().toLowerCase()) await API.rpc("admin_definir_google_email", { p_id: p.id, p_email: $("#mbG").value.trim() });
         await salvarAcesso(p.id, p, papel);
+        await salvarModulos(p.id, p);
         closeModal(true); toast("Salvo.");
       }
       S.all = null; await reloadPerfis(); loadEquipeGoogle(); renderEquipe();

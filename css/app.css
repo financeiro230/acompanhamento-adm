@@ -695,3 +695,32 @@ body:not([data-t=claro]) .ncard,body:not([data-t=claro]) .nedit{background:color
   header .brand,header .spacesel,header #meBtn{flex-shrink:0}
 }
 @media (min-width:901px) and (max-width:1380px){ header .brand span{display:none} }
+
+/* ===== atualização 8 ===== */
+.updacts{float:right;display:inline-flex;gap:2px;opacity:.55}
+.updacts button{background:none;border:0;cursor:pointer;font-size:12px;padding:0 3px;border-radius:5px}
+.updacts button:hover{background:var(--sel)}
+li:hover>.tl-when .updacts,.pkupd:hover .updacts{opacity:1}
+.pkupd{position:relative}
+.tag.share{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.nlabels{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 2px}
+.nlabel{display:inline-flex;align-items:center;gap:3px;font-size:12px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--ink) 8%,transparent);border:1px solid transparent;color:var(--ink);cursor:pointer;font-family:inherit}
+.nlabel button{background:none;border:0;cursor:pointer;color:var(--muted);padding:0 0 0 2px;font-size:14px;line-height:1}
+.nlabel.on{background:var(--accent);color:#fff}
+.nlabbar{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:0 0 12px}
+.nlabedit{margin-top:10px}
+.nlabadd .fld{padding:6px 10px;font-size:13px;margin-top:4px;background:transparent}
+.nview .nvtext{white-space:pre-wrap;line-height:1.55;word-break:break-word;margin:6px 0}
+.nview .nvitems{list-style:none;padding:0;margin:4px 0}
+.nview .nvitems li{padding:3px 0}
+.nview .nvitems li.done span{text-decoration:line-through;color:var(--muted)}
+.ctwrap{max-width:1100px;margin:0 auto;padding:4px 4px 30px}
+.ctgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px;margin-top:12px}
+.ctcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;transition:box-shadow .15s}
+.ctcard:hover{box-shadow:0 2px 12px rgba(20,25,40,.12)}
+.cttop{display:flex;gap:10px;align-items:center}
+.cttop .avatar{width:34px;height:34px;flex:0 0 34px;font-size:13px;cursor:default}
+.ctacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ctacts .btn{text-decoration:none}
+.ctobs{margin-top:8px;white-space:pre-wrap;max-height:4.5em;overflow:hidden}
+.tab.hidden{display:none!important}

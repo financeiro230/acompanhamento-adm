@@ -31,7 +31,7 @@ async function gConnect(){
   const first = !gOn();
   return new Promise(resolve => {
     G.client = google.accounts.oauth2.initTokenClient({
-      client_id: GCFG.clientId, scope: GCFG.scope, include_granted_scopes: true, hint: (gPref() && gPref().email) || undefined,
+      client_id: GCFG.clientId, scope: GCFG.scope + (prefs().driveOn ? " " + DRIVE_SCOPE : ""), include_granted_scopes: true, hint: (gPref() && gPref().email) || undefined,
       callback: async resp => {
         if (resp.error){ toast(resp.error === "access_denied" ? "Conexão com o Google cancelada." : "Google: " + resp.error, true); resolve(false); return; }
         G.token = resp.access_token; G.exp = Date.now() + (resp.expires_in || 3600) * 1000; G.scopes = resp.scope || "";

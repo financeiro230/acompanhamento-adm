@@ -29,8 +29,9 @@ function renderArquivos(){
     v.innerHTML = `<div class="fxwrap"><div class="fxconnect">
       <div style="font-size:42px">📁</div><h2>Seus arquivos no Google Drive</h2>
       <p>Guarde arquivos e links, crie pastas e dê nomes do seu jeito. Tudo fica no Google Drive da conta que você conectar, dentro da pasta <b>"${DRIVE_FOLDER}"</b>: nada fica salvo no site.</p>
-      <button class="btn primary" id="fxCon">🔗 Conectar Google Drive</button>
-      <p class="note">Na primeira vez o Google pede permissão para o app criar e abrir os arquivos dele no seu Drive.</p></div></div>`;
+      ${driveOnPref() ? `<p class="banner" style="margin:6px 0">🔄 A conexão com o Drive precisa ser renovada (o Google libera 1 hora por vez). Normalmente o site renova sozinho no próximo clique; se não renovar, clique abaixo.</p>` : ""}
+      <button class="btn primary" id="fxCon">${driveOnPref() ? "🔄 Reconectar Google Drive" : "🔗 Conectar Google Drive"}</button>
+      <p class="note">Na primeira vez o Google pede permissão para o app criar e abrir os arquivos dele no seu Drive.</p></div>${pastasComigoHtml()}</div>`;
     $("#fxCon").onclick = async () => { try { await driveConnect(); FX.stack = []; toast("Google Drive conectado."); fxLoad(); } catch(ex){ toast(ex.message, true); } };
     return;
   }
@@ -61,11 +62,13 @@ function renderArquivos(){
         <div class="fxbtns">
           ${!isFolder(f) ? `<a class="btn ghost sm" href="${esc(fxOpenUrl(f))}" target="_blank" rel="noopener" title="Abrir">↗</a>` : ""}
           ${!isFolder(f) && !isLink(f) ? `<button class="btn ghost sm" data-fxa="copy" title="Copiar link do Drive">⧉</button>` : isLink(f) ? `<button class="btn ghost sm" data-fxa="copy" title="Copiar link">⧉</button>` : ""}
+          ${isFolder(f) ? `<button class="btn ghost sm" data-fxa="share" title="Compartilhar pasta com a equipe">👥${(S.pastasComp || []).find(x => x.id === f.id) ? ` ${(S.pastasComp.find(x => x.id === f.id).membros || []).length}` : ""}</button>` : ""}
           <button class="btn ghost sm" data-fxa="ren" title="Renomear">✏️</button>
           <button class="btn ghost sm" data-fxa="mv" title="Mover para outra pasta">📂</button>
           <button class="btn ghost sm del" data-fxa="del" title="Mandar para a lixeira do Drive">🗑</button>
         </div></div>`).join("")}</div>`
       : `<div class="fxempty">${q ? "Nada encontrado com esse nome." : `Esta pasta está vazia.<br><span class="note">Arraste arquivos para cá ou use os botões acima.</span>`}</div>`}
+    ${FX.stack.length <= 1 ? pastasComigoHtml() : ""}
   </div>`;
   const qi = $("#fxQ"); qi.oninput = () => { const p = qi.selectionStart; FX.q = qi.value; renderArquivos(); const n = $("#fxQ"); n.focus(); n.setSelectionRange(p, p); };
   $("#fxFile").onchange = e => { const fs = [...e.target.files]; e.target.value = ""; fxUpload(fs); };
@@ -168,6 +171,7 @@ document.addEventListener("click", async e => {
     await dFetch(`https://www.googleapis.com/drive/v3/files/${f.id}?fields=id`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     toast("Alterado."); }, isLink(f) ? `<label class="f" style="margin-top:12px">Link</label><input class="fld" id="fxU" value="${esc(linkUrl(f))}" required>` : "");
   if (a === "mv") fxMove(f);
+  if (a === "share") fxShareFolder(f);
   if (a === "del") confirmBox(`Excluir "${f.name}"?`, isFolder(f) ? "A pasta e tudo o que está dentro vão para a lixeira do seu Google Drive (dá para recuperar por lá em até 30 dias). Anexos de demandas que apontam para esses arquivos deixam de abrir." : "Vai para a lixeira do seu Google Drive (dá para recuperar por lá em até 30 dias). Se estiver anexado a alguma demanda, o anexo deixa de abrir.", "Excluir", async () => {
     try { await dFetch(`https://www.googleapis.com/drive/v3/files/${f.id}?fields=id`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }) }); toast("Enviado para a lixeira do Drive."); fxLoad(); }
     catch(ex){ toast(errMsg(ex), true); }

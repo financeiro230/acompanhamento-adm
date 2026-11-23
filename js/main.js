@@ -12,11 +12,13 @@ function renderAll(){
   else if (S.view === "equipe") renderEquipe();
   else if (S.view === "notas") renderNotas();
   else if (S.view === "arquivos") renderArquivos();
+  else if (S.view === "contatos") renderContatos();
   renderBatch();
   if (K.openId && modalOpen()) refreshDemandaModal();
 }
 function setView(v){
   if (v === "equipe" && !isAdmin()) v = "agenda";
+  if (typeof podeModulo === "function" && S.me && !podeModulo(v)){ const f = MODS.find(([k]) => podeModulo(k)); v = f ? f[0] : "agenda"; }
   S.view = v; S.selected.clear();
   $$(".tab").forEach(t => t.classList.toggle("on", t.dataset.view === v));
   $$(".view").forEach(x => x.classList.toggle("hidden", x.id !== "v-" + v));
@@ -77,8 +79,9 @@ async function reloadSpace(showSpin){
   try {
     if (showSpin) $("#saving").textContent = "Carregando…";
     if (S.view === "parados" && ST.scope === "team") S.all = null;
-    const [d, e, cols, atr] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null),
+    let [d, e, cols, atr] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null),
       canAssign() ? API.listBy("eventos", "criado_por", S.me.id).catch(() => []) : Promise.resolve([])]);
+    if (isOwnSpace()){ try { const sh = await API.listShared(S.me.id); const ids = new Set(d.map(x => x.id)); d = d.concat(sh.filter(x => !ids.has(x.id))); } catch {} }
     S.demandas = d; S.eventos = e; S.globalCols = cols; applySpaceCols();
     S.atribuidas = atr.filter(x => x.dono !== S.me.id);
     if (showSpin) $("#saving").textContent = "";
@@ -101,14 +104,15 @@ async function startApp(uid){
   applyTheme(prefs()); gRestore();
   if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
   loadEquipeGoogle();
+  await loadNomes(); loadPastasComp(); CT.loaded = false;
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
   let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); const ps = S.perfis.find(p => p.id === s);
     if (ps && (ps.papel !== "admin" || ps.id === me.id || await API.rpc("espaco_liberado", { p_alvo: s }).catch(() => false))) sp = s; } catch {}
   S.space = sp;
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
-  renderHeader();
+  renderHeader(); aplicarModulos(); avIniciar();
   const h = location.hash.slice(1);
-  setView(["agenda","kanban","notas","arquivos","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
+  setView(["agenda","kanban","notas","arquivos","contatos","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
   await reloadSpace(true);
   resetIdle();
 }
@@ -200,18 +204,20 @@ $("#meBtn").addEventListener("click", () => {
       <p class="note" style="margin:0 0 6px">Usuário: <b>@${esc(S.me.usuario)}</b> · ${isAdmin()?"Administrador":"Membro"}</p>
       <button class="btn" id="meAp">🎨 Aparência (tema e cores)</button>
       <button class="btn" id="mePw">🔑 Trocar minha senha</button>
+      <button class="btn" id="meAv">🔔 Avisos no celular e no computador</button>
       <button class="btn" id="meOut">🚪 Sair</button>
       <p class="note" style="margin:6px 0 0">Por segurança, o sistema sai sozinho após ${CFG.idleMin} minutos sem uso ou quando você fecha a aba.</p>
     </div>`, "small");
   $("#mePw").onclick = () => { closeModal(true); passModal(S.me); };
   $("#meAp").onclick = () => { closeModal(true); openAparencia(); };
+  $("#meAv").onclick = () => { closeModal(true); openAvisos(); };
   $("#meOut").onclick = () => logout();
 });
 $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
 $("#spaceSel").addEventListener("change", e => setSpace(e.target.value));
 $("#search").addEventListener("input", e => { S.q = e.target.value; renderAll(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && modalOpen()) closeModal(); });
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","notas","arquivos","parados","finalizadas","equipe"].includes(h)) setView(h); });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","notas","arquivos","contatos","parados","finalizadas","equipe"].includes(h)) setView(h); });
 
 /* ---------- inatividade e atualização ---------- */
 let idleT = null;

@@ -130,7 +130,7 @@ function cardHtml(it){
       <div class="ctitle">${esc(it.titulo)}</div>
       ${it.descricao ? `<div class="cdesc">${esc(it.descricao)}</div>` : ""}
       <div class="cmeta">
-        ${prioTag(it.prioridade)}
+        ${prioTag(it.prioridade)}${compartBadge(it)}
         ${prazoTag(it.prazo, it.status)}
         ${cl.length ? `<span class="tag ${cl.every(c=>c.feito)?"okt":""}">☑ ${cl.filter(c=>c.feito).length}/${cl.length}</span>` : ""}
         ${(() => { const nx = cl.filter(c => !c.feito && c.prazo).sort((a,b) => a.prazo.localeCompare(b.prazo))[0]; if (!nx || it.status === FIN) return "";
@@ -371,7 +371,7 @@ function checklistHtml(it){
 }
 function footHtml(it){
   const others = isAdmin() ? S.perfis.filter(p => p.id !== it.dono && p.ativo) : [];
-  return `<button class="btn danger" data-del>Excluir</button>
+  return `${demandaDeOutro(it) ? "" : `<button class="btn danger" data-del>Excluir</button>`}
     <button class="btn" data-agendar title="Criar uma missão na agenda ligada a esta demanda">📅 Agendar</button>
     ${others.length ? `<select class="fld" id="dTransf" style="width:auto"><option value="">Passar para…</option>${others.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join("")}</select>` : ""}
     <div class="spacer"></div>
@@ -395,6 +395,7 @@ function openDemanda(id){
     <div class="dates" id="dates">${datesHtml(it)}</div>
     <div class="section"><h3>✅ Checklist / passo a passo</h3><div id="ck">${checklistHtml(it)}</div></div>
     <div class="section"><h3>📎 Anexos</h3>${anexosHtml("d", it.id)}</div>
+    ${compartDHtml(it)}
     <div class="section"><h3>💬 Nova atualização / andamento</h3>
       <div class="upd"><textarea class="fld" id="dN" placeholder="O que aconteceu? (Ctrl+Enter para registrar)"></textarea><button class="btn primary" id="dNok">Registrar</button></div></div>
     <div class="section"><h3>🕓 Histórico</h3><ul class="timeline" id="tl">${timelineHtml(it)}</ul></div>
@@ -617,11 +618,11 @@ function openDemandaPeek(id){
   const notes = (it.historico||[]).filter(h => h.tipo === "nota").slice(-3).reverse();
   const ov = overlay(`<div class="peek-bar" style="background:${it.cor || c.color}"></div>
     <div class="mhead" style="align-items:center"><div class="mt">${esc(it.titulo)}</div>
-      <button class="x" data-pk="edit" title="Abrir para editar">✏️</button><button class="x" data-pk="del" title="Excluir">🗑</button><button class="x" data-close title="Fechar">×</button></div>
+      <button class="x" data-pk="edit" title="Abrir para editar">✏️</button>${demandaDeOutro(it) ? "" : `<button class="x" data-pk="del" title="Excluir">🗑</button>`}<button class="x" data-close title="Fechar">×</button></div>
     <div class="mbody">
       <div class="cmeta" style="margin:0 0 12px">
         <span class="tag"><span class="dot" style="background:${c.color};display:inline-block;margin-right:4px"></span>${esc(c.label)}</span>
-        ${prioTag(it.prioridade, true)}
+        ${prioTag(it.prioridade, true)}${compartBadge(it)}
         ${prazoTag(it.prazo, it.status) || (it.prazo ? `<span class="tag">Prazo ${fmtYmd(it.prazo)}</span>` : `<span class="tag">Sem prazo</span>`)}
         <span class="tag">⏳ ${idleDays(it)} dia(s) sem movimento</span>
       </div>
@@ -629,7 +630,7 @@ function openDemandaPeek(id){
       ${cl.length ? `<div class="section" style="margin-top:6px"><h3>✅ Checklist · ${cl.length - pend.length}/${cl.length}</h3>
         ${cl.map(x => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pkck="${x.id}" ${x.feito?"checked":""}> <span style="${x.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(x.texto)}</span>${x.prazo && !x.feito ? `<span class="tag ${x.prazo < todayYmd() ? "late" : ""}" style="margin-left:auto">⏰ ${fmtYmd(x.prazo)}</span>` : ""}</label>`).join("")}</div>` : ""}
       <div class="section"><h3>💬 Últimas atualizações</h3>
-        ${notes.length ? notes.map(n => `<div class="lastupd" style="border-top:0;padding-top:0;-webkit-line-clamp:3"><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
+        ${notes.length ? notes.map(n => `<div class="lastupd pkupd" style="border-top:0;padding-top:0;-webkit-line-clamp:3"><span class="nacts updacts"><button type="button" data-pkne="${n.em}" data-pkid="${it.id}" title="Editar">✏️</button><button type="button" data-pknx="${n.em}" data-pkid="${it.id}" title="Excluir">🗑</button></span><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}${n.editadoEm ? " (editada)" : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
         <div class="upd" style="margin-top:8px"><input class="fld" id="pkNote" placeholder="Registrar andamento rápido… (Enter)"><button class="btn sm primary" data-pk="note">Registrar</button></div></div>
       <div class="section"><h3>📎 Anexos</h3>${anexosHtml("d", it.id)}</div>
       <div class="dates"><div><b>Cadastro</b>${fmt(it.criado_em)}</div><div><b>Última modificação</b>${fmt(it.atualizado_em)}</div>${it.finalizado_em ? `<div><b>Finalização</b>${fmt(it.finalizado_em)}</div>` : ""}</div>
