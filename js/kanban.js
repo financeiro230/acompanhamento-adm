@@ -90,7 +90,7 @@ function renderKanban(){
       ? `<div class="addinline"><textarea id="inl" placeholder="${ph}"></textarea>
          <div class="row"><button class="btn primary sm" data-act="inlsave">Adicionar</button><button class="btn ghost sm" data-act="inlcancel">Cancelar</button></div></div>`
       : `<button class="btn ghost sm addbtn" data-act="inl" data-col="${c.key}">＋ Adicionar</button>`;
-    return `<section class="col" data-col="${c.key}">
+    return `<section class="col" data-col="${c.key}" ${c.lado === "lateral" ? "data-lat=\"1\"" : ""}>
       <div class="colhead" ${canMoveCols() ? `draggable="true" data-colkey="${c.key}" title="Arraste para mudar este quadro de lugar"` : ""}>${canMoveCols() ? `<span class="grip">⠿</span>` : ""}<span class="dot" style="background:${c.color}"></span>${esc(c.label)}<span class="count">${list.length}</span>${canMoveCols() ? `<button class="colins" data-colins="${c.key}" title="Criar um quadro novo logo depois deste">＋</button>` : ""}</div>
       <div class="cards">${cards}</div>${add}</section>`;
   };
@@ -100,7 +100,8 @@ function renderKanban(){
   const cnt = c => S.demandas.filter(i => i.status === c.key && matchesSearch(i) && matchesFilter(i)).length;
   const mobCols = () => `<div class="mcols">${[...pri, ...lat].map(c => `<button data-mcol="${c.key}" class="${K.mcol === c.key ? "on" : ""}"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}<b>${cnt(c)}</b></button>`).join("")}${isOwnSpace() ? `<button data-colins="${K.mcol}" title="Novo quadro">＋</button>` : ""}</div>
     <div class="board mob">${colHtml(COLS.find(c => c.key === K.mcol))}</div>`;
-  const ncols = pri.length + (lat.length ? 1 : 0);
+  const groups = []; pri.forEach(c => { if (c.junto && groups.length) groups[groups.length - 1].push(c); else groups.push([c]); });
+  const ncols = groups.length + (lat.length ? 1 : 0);
   const total = S.demandas.filter(d => d.status !== FIN).length, shown = S.demandas.filter(d => d.status !== FIN && matchesSearch(d) && matchesFilter(d)).length;
   v.innerHTML = `<div class="kbar"><button class="btn primary" data-act="newD">＋ Nova demanda</button>
       <div class="ksearch"><span>🔎</span><input id="kSearch" placeholder="${isMob() ? "Pesquisar demandas…" : "Pesquisar no kanban (título, descrição, atualizações, passos)…"}" value="${esc(S.q||"")}">${S.q ? `<button class="ckb" data-act="kclear" title="Limpar">×</button>` : ""}</div>
@@ -109,7 +110,7 @@ function renderKanban(){
       <div class="spacer"></div>
       ${isOwnSpace() ? `<button class="btn" data-act="cols" title="Meus quadros">⚙<span class="hide-sm"> Meus quadros</span></button>` : ""}</div>
     ${mob ? mobCols() : `<div class="board" style="grid-template-columns:repeat(${ncols},minmax(230px,1fr))">${lat.length ? `<div class="stack">${lat.map(colHtml).join("")}</div>` : ""}
-    ${pri.map(colHtml).join("")}</div>`}`;
+    ${groups.map(g => g.length > 1 ? `<div class="stack">${g.map(colHtml).join("")}</div>` : colHtml(g[0])).join("")}</div>`}`;
   if (K.inlineAdd){ const t = $("#inl"); t && t.focus(); }
   const ks = $("#kSearch");
   ks.oninput = () => { const pos = ks.selectionStart; S.q = ks.value; $("#search").value = S.q; renderKanban(); const n = $("#kSearch"); n.focus(); n.setSelectionRange(pos, pos); };
@@ -143,30 +144,64 @@ function cardHtml(it){
 }
 
 /* ---------- finalizadas ---------- */
+const FZ = { from: "", to: "", per: "30", tipo: "todos" };
+function finMissoes(){
+  const out = [];
+  for (const ev of (S.eventos || [])){
+    if (ev.tipo !== "missao") continue;
+    if (ev.recorrencia && ev.recorrencia !== "nenhuma"){
+      for (const d of (ev.concluidas || [])) out.push({ ev, date: d, em: parseYmd(d).getTime() + 12 * 3600e3, ocorr: true });
+    } else if (ev.concluida) out.push({ ev, date: ev.data, em: ev.concluida_em || parseYmd(ev.data).getTime(), ocorr: false });
+  }
+  return out;
+}
+function fzRange(){
+  const now = new Date(), sod = d => { d.setHours(0,0,0,0); return d; };
+  const per = FZ.per;
+  if (per === "custom") return [FZ.from ? parseYmd(FZ.from).getTime() : 0, FZ.to ? parseYmd(FZ.to).getTime() + dayMs : Infinity];
+  if (["7","30","90"].includes(per)) return [sod(new Date(Date.now() - (+per - 1) * dayMs)).getTime(), Infinity];
+  if (per === "today") return [sod(new Date()).getTime(), Infinity];
+  if (per === "month") return [new Date(now.getFullYear(), now.getMonth(), 1).getTime(), Infinity];
+  if (per === "lastmonth") return [new Date(now.getFullYear(), now.getMonth()-1, 1).getTime(), new Date(now.getFullYear(), now.getMonth(), 1).getTime()];
+  return [0, Infinity];
+}
 function renderFinalizadas(){
   const v = $("#v-finalizadas");
-  const per = v.dataset.per || "30";
-  const now = new Date(); let from = 0, to = Infinity;
-  if (["7","30","90"].includes(per)) from = Date.now() - (+per)*dayMs;
-  else if (per === "month") from = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  else if (per === "lastmonth"){ from = new Date(now.getFullYear(), now.getMonth()-1, 1).getTime(); to = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); }
-  const list = S.demandas.filter(i => i.status===FIN && matchesSearch(i) && (i.finalizado_em||0)>=from && (i.finalizado_em||0)<to)
-    .sort((a,z) => (z.finalizado_em||0)-(a.finalizado_em||0));
-  const allOn = list.length>0 && list.every(i => S.selected.has(i.id));
-  v.innerHTML = `<div class="hbar">
-      <select id="hPeriod">${[["all","Todo o período"],["7","Últimos 7 dias"],["30","Últimos 30 dias"],["90","Últimos 90 dias"],["month","Este mês"],["lastmonth","Mês passado"]].map(([k,l])=>`<option value="${k}" ${k===per?"selected":""}>${l}</option>`).join("")}</select>
-      <span class="note">${list.length} demanda(s) finalizada(s)</span></div>
+  const [from, to] = fzRange();
+  if (FZ.per !== "custom"){ FZ.from = from ? ymd(new Date(from)) : ""; FZ.to = to !== Infinity ? ymd(new Date(to - dayMs)) : ""; }
+  const q = (S.q || "").trim().toLowerCase();
+  const dem = FZ.tipo === "missoes" ? [] : S.demandas.filter(i => i.status===FIN && matchesSearch(i) && (i.finalizado_em||0)>=from && (i.finalizado_em||0)<to);
+  const mis = FZ.tipo === "demandas" ? [] : finMissoes().filter(m => m.em >= from && m.em < to && (!q || (m.ev.titulo + " " + (m.ev.descricao || "")).toLowerCase().includes(q)));
+  const rows = [...dem.map(it => ({ k: "d", em: it.finalizado_em || 0, it })), ...mis.map(m => ({ k: "m", em: m.em, m }))].sort((a, z) => z.em - a.em);
+  const allOn = dem.length>0 && dem.every(i => S.selected.has(i.id));
+  const fmtDay = t => new Date(t).toLocaleDateString("pt-BR");
+  v.innerHTML = `<div class="hbar fzbar">
+      <select id="hPeriod">${[["all","Todo o período"],["today","Hoje"],["7","Últimos 7 dias"],["30","Últimos 30 dias"],["90","Últimos 90 dias"],["month","Este mês"],["lastmonth","Mês passado"],["custom","Escolher datas…"]].map(([k,l])=>`<option value="${k}" ${k===FZ.per?"selected":""}>${l}</option>`).join("")}</select>
+      <label class="fzd">De <input type="date" id="fzFrom" value="${FZ.from}" title="dd/mm/aaaa"></label>
+      <label class="fzd">até <input type="date" id="fzTo" value="${FZ.to}" title="dd/mm/aaaa"></label>
+      <div class="seg fzt">${[["todos","Tudo"],["demandas","📋 Demandas"],["missoes","🎯 Missões da agenda"]].map(([k,l]) => `<button data-fzt="${k}" class="${FZ.tipo===k?"on":""}">${l}</button>`).join("")}</div>
+      <span class="note">${dem.length} demanda(s) · ${mis.length} missão(ões)</span></div>
     <div style="overflow-x:auto"><table><thead><tr>
-      <th style="width:32px"><input type="checkbox" id="hAll" data-ids="${list.map(i=>i.id).join(",")}" ${allOn?"checked":""}></th>
-      <th>Demanda</th><th>Cadastro</th><th>Finalização</th><th class="hide-sm">Duração</th><th class="hide-sm">Atualizações</th></tr></thead>
-    <tbody>${list.map(it => `<tr class="click" data-open="${it.id}">
+      <th style="width:32px"><input type="checkbox" id="hAll" data-ids="${dem.map(i=>i.id).join(",")}" ${allOn?"checked":""} title="Selecionar as demandas"></th>
+      <th>Item</th><th>Cadastro</th><th>Finalização</th><th class="hide-sm">Duração</th><th class="hide-sm">Atualizações</th></tr></thead>
+    <tbody>${rows.map(r => r.k === "d" ? (it => `<tr class="click" data-open="${it.id}">
       <td><input type="checkbox" data-sel="${it.id}" ${S.selected.has(it.id)?"checked":""}></td>
-      <td class="t">${esc(it.titulo)}${it.descricao?`<div class="sub">${esc(it.descricao.slice(0,120))}${it.descricao.length>120?"…":""}</div>`:""}</td>
+      <td class="t"><span class="fzk">📋 Demanda</span>${esc(it.titulo)}${it.descricao?`<div class="sub">${esc(it.descricao.slice(0,120))}${it.descricao.length>120?"…":""}</div>`:""}</td>
       <td>${fmt(it.criado_em)}</td><td>${fmt(it.finalizado_em)}</td>
       <td class="hide-sm">${it.finalizado_em?dur(it.criado_em,it.finalizado_em):"—"}</td>
-      <td class="hide-sm">${(it.historico||[]).filter(h=>h.tipo==="nota").length}</td></tr>`).join("")
-      || `<tr><td colspan="6" class="empty">Nenhuma demanda finalizada neste período.</td></tr>`}</tbody></table></div>`;
-  $("#hPeriod").onchange = e => { v.dataset.per = e.target.value; renderFinalizadas(); };
+      <td class="hide-sm">${(it.historico||[]).filter(h=>h.tipo==="nota").length}</td></tr>`)(r.it)
+      : (m => `<tr class="click" data-fzm="${m.ev.id}|${m.date}">
+      <td></td>
+      <td class="t"><span class="fzk mis">🎯 Missão${m.ocorr ? " · repete" : ""}</span>${esc(m.ev.titulo)}${m.ev.descricao?`<div class="sub">${esc(m.ev.descricao.slice(0,120))}${m.ev.descricao.length>120?"…":""}</div>`:""}</td>
+      <td>${fmt(m.ev.criado_em)}</td><td>${m.ocorr ? fmtDay(m.em) + " <span class=\"note\">(dia da ocorrência)</span>" : fmt(m.em)}</td>
+      <td class="hide-sm">${m.ocorr ? "—" : dur(m.ev.criado_em, m.em)}</td>
+      <td class="hide-sm">${(m.ev.historico||[]).filter(h=>h.tipo==="nota").length}</td></tr>`)(r.m)).join("")
+      || `<tr><td colspan="6" class="empty">Nada finalizado neste período.</td></tr>`}</tbody></table></div>`;
+  $("#hPeriod").onchange = e => { FZ.per = e.target.value; renderFinalizadas(); };
+  const setD = () => { FZ.per = "custom"; FZ.from = $("#fzFrom").value; FZ.to = $("#fzTo").value; renderFinalizadas(); };
+  $("#fzFrom").onchange = setD; $("#fzTo").onchange = setD;
+  $$("[data-fzt]").forEach(b => b.onclick = () => { FZ.tipo = b.dataset.fzt; renderFinalizadas(); });
+  $$("[data-fzm]").forEach(tr => tr.onclick = () => { const [id, d] = tr.dataset.fzm.split("|"); openEventoPeek(id, d); });
   $("#hAll").onchange = e => { (e.target.dataset.ids||"").split(",").filter(Boolean).forEach(id => e.target.checked ? S.selected.add(id) : S.selected.delete(id)); renderAll(); };
 }
 
@@ -471,13 +506,13 @@ function openColsEditor(){
     $("#colList").innerHTML = list.map((c, i) => `<div class="colrow" data-i="${i}">
       <input type="color" value="${c.color}" data-cf="color" title="Cor do quadro">
       <input class="fld" value="${esc(c.label)}" data-cf="label" placeholder="Nome do quadro">
-      <select class="fld" data-cf="lado"><option value="principal" ${c.lado!=="lateral"?"selected":""}>Área principal</option><option value="lateral" ${c.lado==="lateral"?"selected":""}>Coluna lateral</option></select>
+      <select class="fld" data-cf="lado"><option value="principal" ${c.lado!=="lateral"&&!c.junto?"selected":""}>Área principal</option><option value="junto" ${c.lado!=="lateral"&&c.junto?"selected":""}>Embaixo do quadro acima</option><option value="lateral" ${c.lado==="lateral"?"selected":""}>Coluna lateral</option></select>
       <div class="acts"><button class="ckb" data-cm="-1" ${i===0?"disabled":""} title="Subir">↑</button><button class="ckb" data-cm="1" ${i===list.length-1?"disabled":""} title="Descer">↓</button>
       <button class="ckb del" data-cdel title="Excluir quadro${counts[c.key]?` (tem ${counts[c.key]} demanda(s))`:""}">×</button></div></div>`).join("");
   };
   const ov = overlay(`<div class="mhead"><div class="mt">⚙ Meus quadros do kanban</div><button class="x" data-close>×</button></div>
     <div class="mbody">
-      <p class="note" style="margin:0 0 10px">Monte o seu kanban do seu jeito: crie, renomeie, mude a cor, a ordem e onde cada quadro aparece. Isso vale só para você e não muda o kanban das outras pessoas. "Coluna lateral" empilha o quadro na primeira coluna (como Ideias, Rascunhos e Stand by).</p>
+      <p class="note" style="margin:0 0 10px">Monte o seu kanban do seu jeito: crie, renomeie, mude a cor, a ordem e onde cada quadro aparece. Isso vale só para você e não muda o kanban das outras pessoas. "Embaixo do quadro acima" coloca o quadro debaixo do anterior, na mesma coluna. "Coluna lateral" empilha o quadro na primeira coluna (como Ideias, Rascunhos e Stand by). No quadro, você também pode arrastar o título (⠿) para os lados, para cima ou para baixo.</p>
       <div id="colList"></div>
       <button class="btn sm" id="colAdd" style="margin-top:10px">＋ Novo quadro</button>
       ${isAdmin() ? `<label class="chk" style="margin-top:14px"><input type="checkbox" id="colDef"> Usar também como modelo padrão para quem ainda não personalizou</label>` : ""}
@@ -487,8 +522,10 @@ function openColsEditor(){
     <div class="mfoot"><span class="note">"Finalizado" é fixo e fica na aba Finalizadas.</span><div class="spacer"></div><button class="btn" data-close>Cancelar</button><button class="btn primary" id="colSave">Salvar quadros</button></div>`, "mid", { dirty: () => true });
   draw();
 
-  ov.addEventListener("input", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
-  ov.addEventListener("change", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
+  ov.addEventListener("input", e => { const f = e.target.dataset.cf; if (!f || f === "lado") return; const i = +e.target.closest("[data-i]").dataset.i; list[i][f] = e.target.value; });
+  ov.addEventListener("change", e => { const f = e.target.dataset.cf; if (!f) return; const i = +e.target.closest("[data-i]").dataset.i;
+    if (f === "lado"){ const v = e.target.value; list[i].lado = v === "lateral" ? "lateral" : "principal"; list[i].junto = v === "junto"; return; }
+    list[i][f] = e.target.value; });
   ov.addEventListener("click", e => {
     const row = e.target.closest("[data-i]"); const i = row ? +row.dataset.i : -1;
     const mv = e.target.closest("[data-cm]");

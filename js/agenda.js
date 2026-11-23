@@ -7,7 +7,6 @@ const REC = { nenhuma:"Não repete", diaria:"Todo dia", dias_uteis:"Dias úteis 
 const getE = id => S.eventos.find(e => e.id === id) || (S.atribuidas || []).find(e => e.id === id);
 const toMin = t => { if (!t) return null; const [h,m] = t.split(":").map(Number); return h*60+m; };
 const minToHm = m => `${pad(Math.floor(m/60))}:${pad(m%60)}`;
-const showFinalDemandas = () => A.filt.final !== undefined ? A.filt.final : prefs().agFinal !== false;
 const showDoneMissions = () => A.filt.concl !== undefined ? A.filt.concl : prefs().agConcluidas !== false;
 const defColor = tipo => tipo === "missao" ? prefs().corMissao : tipo === "prazo" ? prefs().corPrazo : prefs().corEvento;
 
@@ -57,7 +56,7 @@ function instances(from, to){
       if (done && !showDoneMissions()) continue;
       const late = ev.tipo === "missao" && !done && (prazoMissao ? prazoMissao < today
         : (date < today || (date === today && !allDay && (end ?? 0) < nowMin)));
-      out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:ev.titulo,
+      out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:(ev.pessoal ? "🔒 " : "") + ev.titulo,
         color: ev.cor || defColor(ev.tipo), done, late, rec: ev.recorrencia !== "nenhuma", local: ev.local, prazo: prazoMissao });
     }
     if (prazoMissao && A.filt.missao && prazoMissao >= from && prazoMissao <= to && !ev.concluida){
@@ -80,14 +79,6 @@ function instances(from, to){
         out.push({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, start:null, end:null,
           title:c.texto, sub:d.titulo, color:defColor("prazo"), done:false, late: c.prazo < today });
       }
-    }
-  }
-  if (showFinalDemandas()){
-    for (const d of S.demandas){
-      if (d.status !== FIN || !d.finalizado_em) continue;
-      const dt = ymd(new Date(d.finalizado_em)); if (dt < from || dt > to) continue;
-      out.push({ key:`d|${d.id}|f${dt}`, kind:"final", id:d.id, date:dt, allDay:true, start:null, end:null,
-        title:d.titulo, color:"var(--ok)", done:true, late:false, hora:new Date(d.finalizado_em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) });
     }
   }
   out.push(...gInstances(from, to));
@@ -235,7 +226,6 @@ function renderSide(){
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
       <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban e passos</label>
-      <label class="chk"><input type="checkbox" data-filt="final" ${showFinalDemandas()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Demandas finalizadas (histórico)</label>
       <label class="chk"><input type="checkbox" data-filt="concl" ${showDoneMissions()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Missões concluídas</label>
       ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
@@ -248,7 +238,6 @@ function chipHtml(i){
   const tip = `${i.title}${i.allDay ? "" : " · " + minToHm(i.start)}`;
   const cls = ["chip", i.done ? "done" : "", i.late ? "late" : ""];
   if (i.kind === "google") return `<button class="chip ${i.done?"done":""} ${i.allDay?"solid":""}" data-inst="${i.key}" style="${i.allDay?`background:${i.color}`:"color:var(--ink)"};${i.pend?`outline:1.5px dashed ${i.color};outline-offset:-1.5px;`:""}" title="Google Agenda: ${esc(tip)}${i.pend?" (convite sem resposta)":""}">${i.allDay?"":`<span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span>`}<span class="t">${i.pend?"✉ ":""}${esc(i.title)}</span></button>`;
-  if (i.kind === "final") return `<button class="chip final" data-inst="${i.key}" title="Demanda finalizada às ${i.hora}: ${esc(i.title)}"><span class="t">✔ ${esc(i.title)}</span></button>`;
   if (i.kind === "passo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Passo do checklist: ${esc(i.title)} — ${esc(i.sub)}"><span class="t">☑ ${esc(i.title)}</span></button>`;
   if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo do kanban: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
   if (i.kind === "limite") return `<button class="chip ${i.late?"late":""}" data-inst="${i.key}" style="color:${i.color};background:${i.color}1f;border:1px dashed ${i.color}" title="Prazo final da missão: ${esc(i.title)}"><span class="t">⏰ Prazo: ${esc(i.title)}</span></button>`;
@@ -328,9 +317,9 @@ function listHtml(){
   const by = {}; inst.forEach(i => (by[i.date] = by[i.date] || []).push(i));
   const row = i => {
     const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" || i.kind==="passo" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
-    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="final"?`Demanda finalizada às ${i.hora}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
+    const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
-      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="final"?"✔":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
+      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;
   };
   let h = "";
@@ -349,7 +338,6 @@ function listHtml(){
 document.addEventListener("change", e => {
   const f = e.target.closest("[data-filt]"); if (!f) return;
   A.filt[f.dataset.filt] = f.checked; renderAgenda();
-  if (f.dataset.filt === "final"){ const p = prefs(); p.agFinal = f.checked; savePrefs(p); }
   if (f.dataset.filt === "concl"){ const p = prefs(); p.agConcluidas = f.checked; savePrefs(p); toast(f.checked ? "Missões concluídas aparecem na agenda." : "Missões concluídas escondidas da agenda."); }
 });
 document.addEventListener("click", e => {
@@ -588,6 +576,7 @@ function openEvento(id, pre = {}, dateCtx = null){
       ${ev ? `<div class="section"><label class="f">💬 Atualizações / andamento</label>${evUpdHtml(ev.id)}</div>
       <div class="section"><label class="f">📎 Anexos</label>${anexosHtml("e", ev.id)}</div>`
         : `<p class="note section">💬 Atualizações e 📎 anexos ficam disponíveis depois de salvar o compromisso.</p>`}
+      ${(!ev ? S.space === S.me.id : (ev.dono === S.me.id && !ev.grupo)) ? `<div class="section"><label class="chk"><input type="checkbox" id="evPes" ${d.pessoal ? "checked" : ""}> 🔒 <b>Pessoal</b> — só você vê (não aparece para administradores nem para quem atribui)</label></div>` : ""}
       <div class="section"><label class="f">Cor</label><div id="evCorBox">${swatchesHtml(d.cor, "cor", defColor(d.tipo))}</div>
         <p class="note" style="margin:6px 0 0">A primeira opção (quadriculada) segue a cor padrão, que você muda em 🎨 Aparência. As outras deixam a cor fixa.</p></div>
       ${ev ? (isAdmin() && !ev.grupo ? donoSelectHtml("evO", d.dono) : "") : (canAssign() ? whoHtml(d.dono) : "")}
@@ -680,6 +669,10 @@ function openEvento(id, pre = {}, dateCtx = null){
       rec_dias: recV === "dias_semana" ? recDias : [], rec_datas: recV === "datas" ? [...new Set(recDatas)].filter(x => x !== data).sort() : [],
       checklist: d.checklist, atualizado_em: now };
     if (ev && $("#evConjEdit")) base.conclusao_conjunta = $("#evConjEdit").checked;
+    if ($("#evPes")){
+      base.pessoal = $("#evPes").checked;
+      if (base.pessoal && !ev && (donos.length > 1 || donos[0] !== S.me.id)){ toast("Um compromisso pessoal é só seu: tire as outras pessoas ou desmarque \"Pessoal\".", true); return; }
+    }
     const grupo = !ev && donos.length > 1 ? uuid() : (ev ? ev.grupo || null : null);
     if (!ev && grupo) base.conclusao_conjunta = tipo === "missao" && !!($("#evConj") && $("#evConj").checked);
     const rows = donos.map(dono => {

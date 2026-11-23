@@ -21,7 +21,7 @@ const FIN = "finalizado";
 let COLS = DEFAULT_COLS.map(c => ({...c}));
 let LABEL = {};
 function setCols(list){
-  COLS = (Array.isArray(list) && list.length ? list : DEFAULT_COLS).map(c => ({key:c.key, label:c.label, color:c.color||"#8a94a6", lado:c.lado==="lateral"?"lateral":"principal"}));
+  COLS = (Array.isArray(list) && list.length ? list : DEFAULT_COLS).map(c => ({key:c.key, label:c.label, color:c.color||"#8a94a6", lado:c.lado==="lateral"?"lateral":"principal", junto: c.lado!=="lateral" && !!c.junto}));
   LABEL = Object.fromEntries(COLS.map(c => [c.key, c.label])); LABEL[FIN] = "Finalizado";
 }
 setCols(null);

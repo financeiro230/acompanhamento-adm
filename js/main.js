@@ -2,7 +2,7 @@
 "use strict";
 
 function renderAll(){
-  $("#finCount").textContent = S.demandas.filter(d => d.status === FIN).length;
+  $("#finCount").textContent = S.demandas.filter(d => d.status === FIN).length + finMissoes().length;
   $("#search").classList.toggle("hidden", !["finalizadas","parados"].includes(S.view));
   $("#stCount").textContent = staleList(S.demandas, ST.min, ST.extras).length;
   if (S.view === "agenda") renderAgenda();

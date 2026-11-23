@@ -34,7 +34,7 @@ function renderArquivos(){
     $("#fxCon").onclick = async () => { try { await driveConnect(); FX.stack = []; toast("Google Drive conectado."); fxLoad(); } catch(ex){ toast(ex.message, true); } };
     return;
   }
-  if (!FX.stack.length && !FX.loading && !FX.err){ fxLoad(); return; }
+  if ((FX.stale || !FX.stack.length) && !FX.loading && !FX.err){ FX.stale = false; fxLoad(); return; }
   const q = FX.q.trim().toLowerCase();
   const items = FX.items.filter(f => !q || f.name.toLowerCase().includes(q) || (isLink(f) && linkUrl(f).toLowerCase().includes(q)));
   v.innerHTML = `<div class="fxwrap" id="fxDrop">
@@ -173,3 +173,5 @@ document.addEventListener("click", async e => {
     catch(ex){ toast(errMsg(ex), true); }
   });
 });
+
+document.addEventListener("click", e => { if (e.target.closest && e.target.closest('.tab[data-view="arquivos"],.tab[data-view=arquivos]')) FX.stale = true; }, true);

@@ -29,7 +29,7 @@ async function renderEquipe(){
     return `<div class="member ${p.ativo?"":"off"}">
       <div class="mtop"><span class="avatar" style="background:${p.cor}">${esc(initials(p.nome))}</span>
         <div style="flex:1;min-width:0"><div class="nm">${esc(p.nome)} ${p.id===S.me.id?'<span class="tag blue">você</span>':""}</div>
-        <div class="us">@${esc(p.usuario)} · ${p.papel==="admin"?"Administrador":"Membro"}${p.papel!=="admin"&&p.pode_atribuir?" · 📤 atribui missões":""}${p.ativo?"":" · <b style='color:var(--danger)'>desativado</b>"}</div></div></div>
+        <div class="us">@${esc(p.usuario)} · ${p.papel==="admin"?(Array.isArray(p.ve)?"Administrador (vê "+p.ve.length+" pessoa"+(p.ve.length>1?"s":"")+")":"Administrador"):"Membro"}${(p.ocultar_de||[]).length?" · 🔒 oculto de "+p.ocultar_de.length+" admin":""}${p.papel!=="admin"&&p.pode_atribuir?" · 📤 atribui missões":""}${p.ativo?"":" · <b style='color:var(--danger)'>desativado</b>"}</div></div></div>
       <div class="stats">
         <div class="stat"><b>${s.abertas}</b><small>demandas abertas</small></div>
         <div class="stat"><b>${s.andamento}</b><small>em andamento</small></div>
@@ -73,18 +73,22 @@ function memberModal(p){
         <div><label class="f">Senha inicial</label><input class="fld" id="mbP" placeholder="mínimo 6 caracteres"></div></div>
         <p class="note">Anote e passe o usuário e a senha para a pessoa. Ela pode trocar a senha depois, no menu do perfil.</p>` : `<p class="note">Usuário para entrar: <b>@${esc(p.usuario)}</b></p>`}
       <div class="grid2 section">
-        <div><label class="f">Tipo de acesso</label><select class="fld" id="mbR"><option value="membro" ${!p||p.papel==="membro"?"selected":""}>Membro (vê só o seu)</option><option value="admin" ${p&&p.papel==="admin"?"selected":""}>Administrador (vê todos)</option></select></div>
+        <div><label class="f">Tipo de acesso</label><select class="fld" id="mbR"><option value="membro" ${!p||p.papel==="membro"?"selected":""}>Membro (vê só o seu)</option><option value="admin" ${p&&p.papel==="admin"?"selected":""}>Administrador</option></select></div>
         ${novo ? "" : `<div><label class="f">Situação</label><select class="fld" id="mbA"><option value="1" ${p.ativo?"selected":""}>Ativo</option><option value="0" ${!p.ativo?"selected":""}>Desativado (sem acesso)</option></select></div>`}
       </div>
       <div class="section"><label class="f">E-mail Google (para integrar a agenda)</label><input class="fld" id="mbG" type="email" placeholder="nome@unigameslojas.com" value="${esc(p && p.google_email || "")}">
         <p class="note" style="margin:4px 0 0">É preenchido sozinho quando a pessoa conecta o Google. Serve para convidá-la nos eventos com Meet e para ver a agenda dela.</p></div>
       <div class="section"><label class="chk"><input type="checkbox" id="mbAtr" ${p && p.pode_atribuir ? "checked" : ""}> Pode atribuir missões e eventos para outras pessoas da equipe</label>
         <p class="note" style="margin:4px 0 0">A pessoa passa a ver a lista de nomes da equipe para escolher em "Para quem" e acompanha o que atribuiu. Ela continua sem ver a agenda ou o kanban dos outros. Administradores já podem.</p></div>
+      ${acessoHtml(p)}
       <div class="section"><label class="f">Cor</label>${swatchesHtml(p ? p.cor : CORES[(S.perfis.length) % CORES.length])}</div>
       <div class="err" id="mbErr" style="margin-top:10px"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" id="mbOk">${novo?"Criar acesso":"Salvar"}</button></div>
     </form>`, "mid");
   $("#mbN").focus();
+  const syncAc = () => { const adm = $("#mbR").value === "admin"; const b = $("#acVe"); if (b) b.hidden = !adm;
+    const so = $("#acSo"); if (so) $("#acVeList").hidden = !so.checked; };
+  $("#mbR").addEventListener("change", syncAc); ov.addEventListener("change", e => { if (e.target.name === "acmodo") syncAc(); }); syncAc();
   if (novo) $("#mbN").addEventListener("input", () => {
     const u = $("#mbU"); if (u.dataset.touched) return;
     u.value = semAcento($("#mbN").value.trim().split(/\s+/)[0] || "").toLowerCase().replace(/[^a-z0-9._-]/g, "");
@@ -105,11 +109,13 @@ function memberModal(p){
         if (cor) await API.rpc("admin_atualizar_perfil", { p_id: id, p_nome: nome, p_papel: papel, p_ativo: true, p_cor: cor });
         if ($("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: id, p_valor: true });
         if ($("#mbG").value.trim()) await API.rpc("admin_definir_google_email", { p_id: id, p_email: $("#mbG").value.trim() });
+        await salvarAcesso(id, null, papel);
         closeModal(true); toast(`Acesso criado para ${nome}. Usuário: ${usuario}`);
       } else {
         await API.rpc("admin_atualizar_perfil", { p_id: p.id, p_nome: nome, p_papel: papel, p_ativo: $("#mbA").value === "1", p_cor: cor });
         if (!!p.pode_atribuir !== $("#mbAtr").checked) await API.rpc("admin_definir_atribuir", { p_id: p.id, p_valor: $("#mbAtr").checked });
         if ((p.google_email || "") !== $("#mbG").value.trim().toLowerCase()) await API.rpc("admin_definir_google_email", { p_id: p.id, p_email: $("#mbG").value.trim() });
+        await salvarAcesso(p.id, p, papel);
         closeModal(true); toast("Salvo.");
       }
       S.all = null; await reloadPerfis(); loadEquipeGoogle(); renderEquipe();
@@ -137,4 +143,40 @@ function passModal(p){
       closeModal(true); toast(self ? "Sua senha foi alterada." : `Senha de ${p.nome} alterada.`);
     } catch(ex){ err.textContent = errMsg(ex); $("#pwOk").disabled = false; }
   });
+}
+
+/* ---------- limites de visualização entre administradores ---------- */
+const adminTotal = () => S.me.papel === "admin" && !S.me.ve;
+function acessoHtml(p){
+  if (!adminTotal()) return "";
+  const others = S.perfis.filter(x => !p || x.id !== p.id);
+  const admins = others.filter(x => x.papel === "admin");
+  const ve = p && Array.isArray(p.ve) ? p.ve : null, oc = (p && p.ocultar_de) || [];
+  const self = p && p.id === S.me.id;
+  return `<div class="section acbox">
+    <div id="acVe" ${p && p.papel === "admin" ? "" : "hidden"}>
+      <label class="f">🔭 O que este administrador pode ver</label>
+      ${self ? `<p class="note" style="margin:4px 0 0">Você vê todos os espaços (não dá para limitar o seu próprio acesso).</p>` : `
+      <label class="chk"><input type="radio" name="acmodo" value="todos" ${!ve ? "checked" : ""}> O espaço de todos</label>
+      <label class="chk"><input type="radio" name="acmodo" value="so" id="acSo" ${ve ? "checked" : ""}> Só o espaço destas pessoas:</label>
+      <div id="acVeList" class="acl" ${ve ? "" : "hidden"}>${others.length ? others.map(x => `<label class="chk"><input type="checkbox" data-acve="${x.id}" ${ve && ve.includes(x.id) ? "checked" : ""}> ${esc(x.nome)}${x.papel === "admin" ? ` <span class="note">(admin)</span>` : ""}</label>`).join("") : `<span class="note">Ainda não há outras pessoas.</span>`}</div>`}
+    </div>
+    <label class="f" style="margin-top:10px">🔒 Quem pode ver o espaço ${p ? "de " + esc(p.nome) : "desta pessoa"}</label>
+    ${admins.length ? `<div class="acl">${admins.map(x => `<label class="chk"><input type="checkbox" data-acoc="${x.id}" ${oc.includes(x.id) ? "" : "checked"} ${x.id === S.me.id && !self ? "disabled title=\"Você sempre vê os espaços que administra\"" : ""}> ${esc(x.nome)}${x.id === S.me.id ? " (você)" : ""}</label>`).join("")}</div>
+      <p class="note" style="margin:4px 0 0">Desmarque um administrador para que ele não veja a agenda nem o kanban desta pessoa, mesmo sendo administrador.</p>`
+      : `<p class="note" style="margin:4px 0 0">Só você é administrador. Quando houver outros, dá para escolher aqui quem vê este espaço.</p>`}
+  </div>`;
+}
+async function salvarAcesso(id, p, papel){
+  if (!adminTotal() || !$(".acbox")) return;
+  let ve = null;
+  if (papel === "admin" && id !== S.me.id && $("#acSo") && $("#acSo").checked){
+    ve = $$("[data-acve]").filter(c => c.checked).map(c => c.dataset.acve);
+    if (!ve.length) throw new Error("Marque pelo menos uma pessoa que este administrador pode ver (ou escolha \"O espaço de todos\").");
+  }
+  const oc = $$("[data-acoc]").filter(c => !c.checked && !c.disabled).map(c => c.dataset.acoc);
+  const same = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...(b || [])].sort());
+  if (p && same(p.ve, ve) && (p.ve == null) === (ve == null) && same(p.ocultar_de, oc)) return;
+  if (!p && ve == null && !oc.length) return;
+  await API.rpc("admin_definir_acesso", { p_id: id, p_ve: ve, p_ocultar: oc });
 }

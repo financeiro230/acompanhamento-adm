@@ -21,7 +21,9 @@ function anxIcon(a){
 
 /* ===================== ANEXOS NO GOOGLE DRIVE ===================== */
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const DRIVE_FOLDER = "Acompanhamento de Demandas";
+const DRIVE_FOLDER = "Acompanhamento Demandas";
+const DRIVE_OLD = "Acompanhamento de Demandas";
+const DRIVE_SUB = { d: "Kanban", e: "Agenda" };
 const DRV = { folder: null, busy: false };
 const driveReady = () => gReady() && (G.scopes || "").includes(DRIVE_SCOPE);
 
@@ -50,16 +52,38 @@ async function dFetch(url, opts = {}){
 }
 async function driveFolder(){
   if (DRV.folder && DRV.folder.email === G.email) return DRV.folder.id;
-  const q = encodeURIComponent(`name='${DRIVE_FOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const r = await dFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
-  let id = r.files && r.files[0] && r.files[0].id;
+  // uma pasta só: "Acompanhamento Demandas" (a antiga "Acompanhamento de Demandas" é renomeada)
+  const q = encodeURIComponent(`(name='${DRIVE_FOLDER}' or name='${DRIVE_OLD}') and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents`);
+  const r = await dFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,createdTime)&orderBy=createdTime&spaces=drive`);
+  const fs = r.files || [];
+  const main = fs.find(f => f.name === DRIVE_FOLDER) || fs[0];
+  let id = main && main.id;
+  if (main && main.name !== DRIVE_FOLDER) await dFetch(`https://www.googleapis.com/drive/v3/files/${id}?fields=id`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: DRIVE_FOLDER }) });
+  for (const other of fs.filter(f => f !== main)){ // juntar pastas duplicadas na principal
+    try {
+      const qq = encodeURIComponent(`'${other.id}' in parents and trashed=false`);
+      const kids = (await dFetch(`https://www.googleapis.com/drive/v3/files?q=${qq}&fields=files(id)&pageSize=1000`)).files || [];
+      for (const k of kids) await dFetch(`https://www.googleapis.com/drive/v3/files/${k.id}?addParents=${id}&removeParents=${other.id}&fields=id`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
+      await dFetch(`https://www.googleapis.com/drive/v3/files/${other.id}?fields=id`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }) });
+    } catch(e){ console.warn(e); }
+  }
   if (!id){
     const f = await dFetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: DRIVE_FOLDER, mimeType: "application/vnd.google-apps.folder", description: "Arquivos anexados no Acompanhamento ADM" }) });
+      body: JSON.stringify({ name: DRIVE_FOLDER, mimeType: "application/vnd.google-apps.folder", parents: ["root"], description: "Arquivos do Acompanhamento ADM (Kanban, Agenda e Arquivos)" }) });
     id = f.id;
   }
-  DRV.folder = { id, email: G.email };
+  DRV.folder = { id, email: G.email, subs: {} };
   return id;
+}
+async function driveSub(name){
+  const root = await driveFolder();
+  if (DRV.folder.subs[name]) return DRV.folder.subs[name];
+  const q = encodeURIComponent(`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${root}' in parents`);
+  const r = await dFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  let id = r.files && r.files[0] && r.files[0].id;
+  if (!id) id = (await dFetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", parents: [root] }) })).id;
+  DRV.folder.subs[name] = id; return id;
 }
 async function driveUpload(file, onProg, parent){
   const folder = parent || await driveFolder();
@@ -100,7 +124,7 @@ function anexosHtml(kind, id){
       <button type="button" class="ckb del" data-anxrm="${esc(a.id)}" title="Tirar do item (o arquivo continua no Drive de quem anexou)">×</button></li>`).join("")}</ul>` : ""}
     <div class="anxbar">${driveReady() ? `<button type="button" class="btn sm" data-anxadd>📎 Anexar arquivo</button>` : `<button type="button" class="btn sm" data-anxcon>📎 Conectar Google Drive para anexar</button>`}
       <button type="button" class="btn sm ghost" data-anxlink>🔗 Link</button>
-      <span class="note">Fica no seu Google Drive, na pasta "${DRIVE_FOLDER}"</span></div>
+      <span class="note">Fica no seu Google Drive, em "${DRIVE_FOLDER} › ${DRIVE_SUB[kind] || ""}"</span></div>
     <div class="anxlf" hidden data-nodirty><input class="fld" data-alu placeholder="Cole o link (Google Drive, planilha, site…)"><input class="fld" data-alt placeholder="Título (opcional)" maxlength="200">
       <div class="row"><button type="button" class="btn sm primary" data-alok>Anexar link</button><button type="button" class="btn sm ghost" data-alcancel>Cancelar</button></div></div>
     <input type="file" multiple hidden data-anxfile><div class="anxprog note"></div></div>`;
@@ -159,7 +183,7 @@ document.addEventListener("change", async e => {
   for (const [n, f] of files.entries()){
     const label = `Enviando ${files.length > 1 ? `${n + 1} de ${files.length}: ` : ""}${f.name}…`;
     prog.textContent = label;
-    try { added.push(await driveUpload(f, p => { prog.textContent = `${label} ${p}%`; })); }
+    try { added.push(await driveUpload(f, p => { prog.textContent = `${label} ${p}%`; }, await driveSub(DRIVE_SUB[kind] || "Outros"))); }
     catch(ex){ toast(`Não foi possível enviar "${f.name}": ${errMsg(ex)}`, true); }
   }
   prog.textContent = "";
@@ -330,34 +354,64 @@ function openNota(id, lista){
   setTimeout(() => { const el = orig ? null : (modoLista ? ov.querySelector("[data-nit]") : $("#nTx")); el && el.focus(); }, 30);
 }
 
-/* ===================== KANBAN: mover e inserir quadros direto no quadro ===================== */
+/* ===================== KANBAN: mover e inserir quadros (lados, em cima, embaixo) ===================== */
 const canMoveCols = () => isOwnSpace() && !isMob();
 let colDrag = null;
 async function saveColsList(list, msg){
-  const p = prefs(); p.colunas = list; await savePrefs(p); applySpaceCols(); renderAll(); if (msg) toast(msg);
+  const p = prefs(); p.colunas = list.map(c => ({ key: c.key, label: c.label, color: c.color, lado: c.lado, junto: c.lado !== "lateral" && !!c.junto }));
+  await savePrefs(p); applySpaceCols(); renderAll(); if (msg) toast(msg);
+}
+/* coloca "item" na posição "pos" (esquerda | direita | cima | baixo) em relação ao quadro "refKey" */
+function placeCol(list, item, refKey, pos){
+  const i0 = list.indexOf(item);
+  if (i0 >= 0){ // tirar da posição antiga sem desmontar a pilha de baixo
+    const nx = list[i0 + 1];
+    if (nx && nx.junto && !item.junto && item.lado !== "lateral") nx.junto = false;
+    list.splice(i0, 1);
+  }
+  const ref = list.find(c => c.key === refKey); let at = list.indexOf(ref);
+  if (ref.lado === "lateral"){
+    item.lado = "lateral"; item.junto = false;
+    list.splice(at + (pos === "baixo" || pos === "direita" ? 1 : 0), 0, item); return list;
+  }
+  item.lado = "principal";
+  if (pos === "cima"){ item.junto = !!ref.junto; ref.junto = true; list.splice(at, 0, item); }
+  else if (pos === "baixo"){ item.junto = true; list.splice(at + 1, 0, item); }
+  else {
+    let st = at; while (st > 0 && list[st].junto && list[st - 1].lado !== "lateral") st--;
+    let en = at; while (list[en + 1] && list[en + 1].junto) en++;
+    item.junto = false;
+    list.splice(pos === "esquerda" ? st : en + 1, 0, item);
+  }
+  return list;
 }
 document.addEventListener("dragstart", e => {
   const h = e.target.closest && e.target.closest("[data-colkey]"); if (!h) return;
   colDrag = h.dataset.colkey; h.closest(".col").classList.add("coldragging");
   try { e.dataTransfer.setData("text/plain", "col:" + colDrag); e.dataTransfer.effectAllowed = "move"; } catch {}
 });
-document.addEventListener("dragend", () => { colDrag = null; $$(".coldragging,.colbefore,.colafter").forEach(x => x.classList.remove("coldragging","colbefore","colafter")); });
-const colDropSide = (col, e) => { const r = col.getBoundingClientRect(); const lat = col.closest(".stack");
-  return lat ? (e.clientY < r.top + r.height / 2 ? "before" : "after") : (e.clientX < r.left + r.width / 2 ? "before" : "after"); };
+const COLMARK = ["colbefore","colafter","colabove","colbelow"];
+document.addEventListener("dragend", () => { colDrag = null; $$(".coldragging," + COLMARK.map(c => "." + c).join(",")).forEach(x => x.classList.remove("coldragging", ...COLMARK)); });
+function colDropPos(col, e){
+  const r = col.getBoundingClientRect(), y = e.clientY - r.top, x = e.clientX - r.left;
+  if (col.closest(".stack") && col.dataset.lat) return y < r.height / 2 ? "cima" : "baixo";
+  const edge = Math.min(80, r.height * 0.25);
+  if (y < edge) return "cima";
+  if (y > r.height - edge) return "baixo";
+  return x < r.width / 2 ? "esquerda" : "direita";
+}
+const POSCLS = { esquerda: "colbefore", direita: "colafter", cima: "colabove", baixo: "colbelow" };
 document.addEventListener("dragover", e => {
   if (!colDrag) return; const col = e.target.closest && e.target.closest(".col[data-col]"); if (!col) return;
-  e.preventDefault(); const side = colDropSide(col, e);
-  $$(".colbefore,.colafter").forEach(x => x.classList.remove("colbefore","colafter"));
-  if (col.dataset.col !== colDrag) col.classList.add(side === "before" ? "colbefore" : "colafter");
+  e.preventDefault(); $$(COLMARK.map(c => "." + c).join(",")).forEach(x => x.classList.remove(...COLMARK));
+  if (col.dataset.col !== colDrag) col.classList.add(POSCLS[colDropPos(col, e)]);
 });
 document.addEventListener("drop", e => {
   if (!colDrag) return; const col = e.target.closest && e.target.closest(".col[data-col]"); if (!col) return;
-  e.preventDefault(); const from = colDrag, to = col.dataset.col, side = colDropSide(col, e); colDrag = null;
+  e.preventDefault(); const from = colDrag, to = col.dataset.col, pos = colDropPos(col, e); colDrag = null;
   if (from === to) return;
-  const list = COLS.map(c => ({ ...c })), item = list.find(c => c.key === from), tgt = list.find(c => c.key === to);
-  list.splice(list.indexOf(item), 1);
-  item.lado = tgt.lado === "lateral" ? "lateral" : "principal";
-  list.splice(list.indexOf(tgt) + (side === "after" ? 1 : 0), 0, item);
+  const list = COLS.map(c => ({ ...c })), item = list.find(c => c.key === from);
+  placeCol(list, item, to, pos);
   if (!list.some(c => c.lado !== "lateral")){ toast("Deixe pelo menos um quadro na área principal.", true); return; }
   saveColsList(list, `"${item.label}" mudou de lugar.`);
 });
@@ -365,25 +419,24 @@ document.addEventListener("click", e => {
   const b = e.target.closest && e.target.closest("[data-colins]"); if (!b) return;
   e.stopPropagation(); openNewCol(b.dataset.colins);
 });
-function openNewCol(afterKey){
-  const after = COLS.find(c => c.key === afterKey);
+function openNewCol(refKey){
+  if (!COLS.find(c => c.key === refKey)) refKey = (COLS.find(c => c.lado !== "lateral") || COLS[0]).key;
   const ov = overlay(`<div class="mhead"><div class="mt">＋ Novo quadro</div><button class="x" data-close>×</button></div>
     <form class="mbody" id="ncForm">
       <label class="f">Nome do quadro</label><input class="fld" id="ncN" maxlength="60" placeholder="Ex.: Aguardando fornecedor" required>
       <label class="f" style="margin-top:12px">Cor</label>${swatchesHtml(CORES[COLS.length % CORES.length], "nccor")}
-      <label class="f" style="margin-top:12px">Onde fica</label>
-      <select class="fld" id="ncPos">${COLS.map(c => `<option value="${c.key}" ${c.key === afterKey ? "selected" : ""}>Depois de "${esc(c.label)}"${c.lado === "lateral" ? " (coluna lateral)" : ""}</option>`).join("")}<option value="__ini">No começo da área principal</option></select>
-      <p class="note">Dica: no computador, arraste o título de qualquer quadro (⠿) para mudar de lugar.</p>
+      <label class="f" style="margin-top:12px">Onde colocar</label>
+      <div class="grid2"><select class="fld" id="ncPos"><option value="direita">À direita de</option><option value="esquerda">À esquerda de</option><option value="baixo">Embaixo de</option><option value="cima">Em cima de</option></select>
+      <select class="fld" id="ncRef">${COLS.map(c => `<option value="${c.key}" ${c.key === refKey ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>
+      <p class="note">Dica: no computador, arraste o título de qualquer quadro (⠿) para os lados, para cima ou para baixo de outro.</p>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Criar quadro</button></div>
     </form>`, "small");
   setTimeout(() => $("#ncN").focus(), 30);
   $("#ncForm").onsubmit = ev => {
     ev.preventDefault(); const label = $("#ncN").value.trim(); if (!label) return;
-    const list = COLS.map(c => ({ ...c })), pos = $("#ncPos").value;
-    const ref = list.find(c => c.key === pos);
-    const nc = { key: "q_" + Math.random().toString(36).slice(2, 8), label, color: swValue(ov, "nccor") || CORES[0], lado: ref && ref.lado === "lateral" ? "lateral" : "principal" };
-    if (pos === "__ini"){ const i = list.findIndex(c => c.lado !== "lateral"); list.splice(i < 0 ? 0 : i, 0, nc); }
-    else list.splice(list.indexOf(ref) + 1, 0, nc);
+    const list = COLS.map(c => ({ ...c }));
+    const nc = { key: "q_" + Math.random().toString(36).slice(2, 8), label, color: swValue(ov, "nccor") || CORES[0], lado: "principal", junto: false };
+    placeCol(list, nc, $("#ncRef").value, $("#ncPos").value);
     closeModal(true); if (isMob()) K.mcol = nc.key;
     saveColsList(list, `Quadro "${label}" criado.`);
   };

@@ -679,3 +679,19 @@ body:not([data-t=claro]) .ncard,body:not([data-t=claro]) .nedit{background:color
 .anxlf[hidden]{display:none}
 .anxlf{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:10px;border:1px dashed var(--line2);border-radius:10px}
 .anxlf .row{display:flex;gap:6px}
+.col.colabove{box-shadow:inset 0 4px 0 var(--accent)}
+.col.colbelow{box-shadow:inset 0 -4px 0 var(--accent)}
+.fzk{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:6px;background:var(--soft);color:var(--ink2);margin-right:7px;vertical-align:1px}
+.fzk.mis{background:color-mix(in srgb,var(--c-missao,#1f9d61) 14%,transparent);color:var(--ok)}
+.fzbar{flex-wrap:wrap;gap:8px}
+.fzd{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.fzd input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);color:var(--ink);font:inherit}
+@media (min-width:901px){ header .search{width:170px;min-width:0} }
+@media (min-width:901px){
+  header{flex-wrap:nowrap}
+  header .tabs{min-width:0;overflow-x:auto;scrollbar-width:none;flex-shrink:1}
+  header .tabs::-webkit-scrollbar{display:none}
+  header .tab{white-space:nowrap}
+  header .brand,header .spacesel,header #meBtn{flex-shrink:0}
+}
+@media (min-width:901px) and (max-width:1380px){ header .brand span{display:none} }
