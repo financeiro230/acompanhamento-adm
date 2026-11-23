@@ -52,7 +52,7 @@ function instances(from, to){
       const start = allDay ? null : toMin(ev.hora_inicio);
       let end = allDay ? null : (ev.hora_fim ? toMin(ev.hora_fim) : start + (ev.tipo === "missao" ? 30 : 60));
       if (!allDay && end <= start) end = start + 30;
-      const done = ev.tipo === "missao" && isDone(ev, date);
+      const done = isDone(ev, date);
       if (done && !showDoneMissions()) continue;
       const late = ev.tipo === "missao" && !done && (prazoMissao ? prazoMissao < today
         : (date < today || (date === today && !allDay && (end ?? 0) < nowMin)));
@@ -92,7 +92,10 @@ function lateList(){
     .map(d => ({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, title:d.titulo, color:defColor("prazo"), late:true }));
   const passos = A.filt.prazo ? S.demandas.filter(d => d.status !== FIN).flatMap(d => (d.checklist||[]).filter(c => !c.feito && c.prazo && c.prazo < today)
     .map(c => ({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, title:c.texto, sub:d.titulo, color:defColor("prazo"), late:true }))) : [];
-  return [...late, ...(A.filt.prazo ? prazos : []), ...passos].sort((a,b) => a.date.localeCompare(b.date));
+  const vistos = new Set();
+  return [...late, ...(A.filt.prazo ? prazos : []), ...passos]
+    .filter(i => { const k = `${i.kind}|${i.id}|${i.date}|${i.title}`; if (vistos.has(k)) return false; vistos.add(k); return true; })
+    .sort((a,b) => a.date.localeCompare(b.date));
 }
 
 /* ---------- ações ---------- */
@@ -102,7 +105,7 @@ function toggleDone(id, date){
     const feito = !isDone(cur, date);
     if (cur.recorrencia !== "nenhuma") cur.concluidas = feito ? [...(cur.concluidas||[]), date] : (cur.concluidas||[]).filter(x => x !== date);
     else { cur.concluida = feito; cur.concluida_em = feito ? Date.now() : null; }
-    renderAll(); toast(feito ? "Missão concluída para todos ✓" : "Missão reaberta para todos.");
+    renderAll(); toast(feito ? "Concluído para todos ✓" : "Reaberto para todos.");
     return API.rpc("grupo_concluir", { g: cur.grupo, p_data: date, p_feito: feito }).then(() => reloadSpace(false)).catch(e => { toast("Não foi possível concluir: " + errMsg(e), true); reloadSpace(false); });
   }
   const it = clone(cur), now = Date.now();
@@ -113,10 +116,10 @@ function toggleDone(id, date){
     it.concluidas = feito ? [...it.concluidas, date] : it.concluidas.filter(x => x !== date);
     if (it.concluidas.length > 400) it.concluidas = it.concluidas.slice(-400);
   } else { feito = !it.concluida; it.concluida = feito; it.concluida_em = feito ? now : null; }
-  it.historico.push(actorTag({tipo: feito ? "final" : "status", em:now, texto: (feito ? "Concluída" : "Reaberta") + (it.recorrencia !== "nenhuma" ? ` (ocorrência de ${fmtYmd(date)})` : "")}));
+  it.historico.push(actorTag({tipo: feito ? "final" : "status", em:now, texto: (feito ? (it.tipo === "missao" ? "Concluída" : "Finalizado") : "Reaberta") + (it.recorrencia !== "nenhuma" ? ` (ocorrência de ${fmtYmd(date)})` : "")}));
   it.atualizado_em = now;
   Object.assign(cur, it); renderAll();
-  toast(feito ? "Missão concluída ✓" : "Missão reaberta.");
+  toast(feito ? (it.tipo === "missao" ? "Missão concluída ✓" : "Evento finalizado ✓") : (it.tipo === "missao" ? "Missão reaberta." : "Evento reaberto."));
   return persist("eventos", it);
 }
 
@@ -226,7 +229,7 @@ function renderSide(){
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
       <label class="chk"><input type="checkbox" data-filt="prazo" ${A.filt.prazo?"checked":""}> <span class="dot" style="background:var(--c-prazo)"></span> Prazos do kanban e passos</label>
-      <label class="chk"><input type="checkbox" data-filt="concl" ${showDoneMissions()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Missões concluídas</label>
+      <label class="chk"><input type="checkbox" data-filt="concl" ${showDoneMissions()?"checked":""}> <span class="dot" style="background:var(--ok)"></span> Concluídas / finalizadas</label>
       ${gOn() && isOwnSpace() ? `<label class="chk"><input type="checkbox" data-filt="google" ${A.filt.google?"checked":""}> <span class="dot" style="background:${prefs().corGoogle||"#4285f4"}"></span> Google Agenda</label>` : ""}
     </div>
     ${gSideHtml()}
@@ -245,8 +248,8 @@ function chipHtml(i){
     return `<button class="${cls.join(" ")}" data-inst="${i.key}" style="color:color-mix(in srgb,${i.color} 72%,var(--ink));background:color-mix(in srgb,${i.color} 13%,transparent)" title="${esc(tip)}">
       <span class="bx" data-done="${i.key}">${i.done?"✓":""}</span>${i.allDay?"":`<span class="hr">${minToHm(i.start)}</span>`}<span class="t">${esc(i.title)}</span>${i.prazo?`<span class="dl">até ${fmtYmd(i.prazo)}</span>`:""}</button>`;
   }
-  if (i.allDay) return `<button class="${cls.join(" ")} solid" data-inst="${i.key}" style="background:${i.color}" title="${esc(tip)}"><span class="t">${i.rec?"↻ ":""}${esc(i.title)}</span></button>`;
-  return `<button class="${cls.join(" ")}" data-inst="${i.key}" style="color:var(--ink)" title="${esc(tip)}"><span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span><span class="t">${esc(i.title)}</span></button>`;
+  if (i.allDay) return `<button class="${cls.join(" ")} solid" data-inst="${i.key}" style="background:${i.color}" title="${esc(tip)}${i.done?" (finalizado)":""}"><span class="t">${i.done?"✓ ":""}${i.rec?"↻ ":""}${esc(i.title)}</span></button>`;
+  return `<button class="${cls.join(" ")}" data-inst="${i.key}" style="color:var(--ink)" title="${esc(tip)}${i.done?" (finalizado)":""}"><span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span><span class="t">${i.done?"✓ ":""}${esc(i.title)}</span></button>`;
 }
 
 function monthHtml(){
@@ -301,7 +304,7 @@ function weekHtml(nDays){
       const w = 100 / e.ncol, left = e.col * w;
       const bg = e.kind === "missao" ? e.color : e.color;
       return `<div class="ev ${e.done?"done":""}" data-inst="${e.key}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);background:${bg};${e.late?"box-shadow:inset 3px 0 0 #fff,0 0 0 2px var(--danger);":""}${e.pend?"border:2px dashed #fff;opacity:.85;":""}">
-        <b>${e.kind==="google"?(e.pend?"✉ ":"G · "):""}${e.kind==="missao"?`<span class="bx" data-done="${e.key}" style="display:inline-flex;width:11px;height:11px;border:1.5px solid #fff;border-radius:3px;margin-right:4px;vertical-align:-1px;font-size:8px;align-items:center;justify-content:center">${e.done?"✓":""}</span>`:""}${e.rec?"↻ ":""}${esc(e.title)}</b>
+        <b>${e.kind==="google"?(e.pend?"✉ ":"G · "):""}${e.kind==="missao"?`<span class="bx" data-done="${e.key}" style="display:inline-flex;width:11px;height:11px;border:1.5px solid #fff;border-radius:3px;margin-right:4px;vertical-align:-1px;font-size:8px;align-items:center;justify-content:center">${e.done?"✓":""}</span>`:""}${e.kind==="evento"&&e.done?"✓ ":""}${e.rec?"↻ ":""}${esc(e.title)}</b>
         <span>${minToHm(e.start)}${e.end?" – "+minToHm(Math.min(e.end,1439)):""}${e.local?" · "+esc(e.local):""}</span></div>`;
     }).join("");
     const nl = k === today ? `<div class="nowline" style="top:${nowMin/60*H}px"></div>` : "";
@@ -319,7 +322,7 @@ function listHtml(){
     const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" || i.kind==="passo" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
     const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
-      ${i.kind==="missao" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
+      ${i.kind==="missao"||i.kind==="evento" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;
   };
   let h = "";
@@ -338,7 +341,7 @@ function listHtml(){
 document.addEventListener("change", e => {
   const f = e.target.closest("[data-filt]"); if (!f) return;
   A.filt[f.dataset.filt] = f.checked; renderAgenda();
-  if (f.dataset.filt === "concl"){ const p = prefs(); p.agConcluidas = f.checked; savePrefs(p); toast(f.checked ? "Missões concluídas aparecem na agenda." : "Missões concluídas escondidas da agenda."); }
+  if (f.dataset.filt === "concl"){ const p = prefs(); p.agConcluidas = f.checked; savePrefs(p); toast(f.checked ? "Concluídas e finalizadas aparecem na agenda." : "Concluídas e finalizadas escondidas da agenda."); }
 });
 document.addEventListener("click", e => {
   if (S.view !== "agenda" || e.target.closest("#modalRoot")) return;
@@ -359,7 +362,7 @@ document.addEventListener("click", e => {
     if (a === "side"){ const p = prefs(); p.sidebar = p.sidebar === false; savePrefs(p); $("#agSide").classList.toggle("closed", p.sidebar === false); return; }
     if (a === "io"){ openIO(); return; }
     if (a === "concl"){ const v = !showDoneMissions(); A.filt.concl = v; const p = prefs(); p.agConcluidas = v; savePrefs(p); renderAgenda();
-      toast(v ? "Missões concluídas aparecem na agenda." : "Missões concluídas escondidas da agenda."); return; }
+      toast(v ? "Concluídas e finalizadas aparecem na agenda." : "Concluídas e finalizadas escondidas da agenda."); return; }
     if (a === "atrib"){ openAtribuidas(); return; }
     if (a === "today") A.cursor = new Date();
     if (a === "prev" || a === "next"){ const s = a === "prev" ? -1 : 1;
@@ -462,7 +465,7 @@ document.addEventListener("click", e => {
 
 function openEventoPeek(id, date){
   const ev = getE(id); if (!ev) return;
-  const ctx = date || ev.data, done = ev.tipo === "missao" && isDone(ev, ctx);
+  const ctx = date || ev.data, done = isDone(ev, ctx);
   const col = ev.cor || defColor(ev.tipo);
   const when = (() => { const d = cap(fmtYmd(ctx, {weekday:"long", day:"numeric", month:"long"}));
     if (!ev.hora_inicio) return d + (ev.tipo !== "missao" && ev.data_fim ? ` até ${fmtYmd(ev.data_fim)}` : " · dia todo");
@@ -480,7 +483,9 @@ function openEventoPeek(id, date){
       ${quem ? `<div class="note" style="margin-bottom:6px">📤 Atribuída por <b>${esc(quem)}</b></div>` : ""}
       ${meetBoxHtml(ev.meet_link)}
       ${ev.tipo === "missao" ? `<div class="dates" style="align-items:center;justify-content:space-between;margin:10px 0"><div><b>Situação</b>${done ? "✅ Concluída" : ((ev.recorrencia === "nenhuma" && ev.data_fim ? ev.data_fim : ctx) < todayYmd() ? "⚠ Atrasada" : "⏳ Em aberto")}</div>
-        <button class="btn sm ${done?"":"ok"}" data-pe="done">${done ? "↺ Reabrir" : (ev.grupo && ev.conclusao_conjunta ? "✓ Concluir para todos" : "✓ Concluir")}</button></div>` : ""}
+        <button class="btn sm ${done?"":"ok"}" data-pe="done">${done ? "↺ Reabrir" : (ev.grupo && ev.conclusao_conjunta ? "✓ Concluir para todos" : "✓ Concluir")}</button></div>`
+        : `<div class="dates" style="align-items:center;justify-content:space-between;margin:10px 0"><div><b>Situação</b>${done ? "✅ Finalizado" : "📅 Agendado"}</div>
+        <button class="btn sm ${done?"":"ok"}" data-pe="done">${done ? "↺ Reabrir" : "✓ Marcar como finalizado"}</button></div>`}
       <div id="peekPart"></div>
       ${cl.length ? `<div class="section"><h3>✅ Checklist · ${cl.filter(c => c.feito).length}/${cl.length}</h3>${cl.map(c => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pck="${c.id}" ${c.feito?"checked":""}> <span style="${c.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(c.texto)}</span></label>`).join("")}</div>` : ""}
       ${ev.descricao ? `<div class="section"><h3>Descrição</h3><div style="white-space:pre-wrap;line-height:1.5">${esc(ev.descricao)}</div></div>` : ""}
@@ -517,7 +522,12 @@ function openEvento(id, pre = {}, dateCtx = null){
   const rec = ev && ev.recorrencia !== "nenhuma";
   const ctx = dateCtx || (ev ? ev.data : null);
   let dirty = false;
-  const statusBlock = ev && ev.tipo === "missao" ? (() => {
+  const statusBlock = ev && ev.tipo !== "missao" ? (() => {
+    const done = isDone(ev, ctx);
+    return `<div class="dates" style="align-items:center;justify-content:space-between">
+      <div><b>Situação ${rec ? "em " + fmtYmd(ctx) : ""}</b>${done ? "✅ Finalizado" : "📅 Agendado"}</div>
+      <button class="btn ${done?"":"ok"}" id="evDone">${done ? "↺ Reabrir" : "✓ Marcar como finalizado"}</button></div>`;
+  })() : ev && ev.tipo === "missao" ? (() => {
     const done = isDone(ev, ctx);
     const lim = ev.recorrencia === "nenhuma" && ev.data_fim ? ev.data_fim : ctx;
     return `<div class="dates" style="align-items:center;justify-content:space-between">

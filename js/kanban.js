@@ -148,7 +148,6 @@ const FZ = { from: "", to: "", per: "30", tipo: "todos" };
 function finMissoes(){
   const out = [];
   for (const ev of (S.eventos || [])){
-    if (ev.tipo !== "missao") continue;
     if (ev.recorrencia && ev.recorrencia !== "nenhuma"){
       for (const d of (ev.concluidas || [])) out.push({ ev, date: d, em: parseYmd(d).getTime() + 12 * 3600e3, ocorr: true });
     } else if (ev.concluida) out.push({ ev, date: ev.data, em: ev.concluida_em || parseYmd(ev.data).getTime(), ocorr: false });
@@ -179,8 +178,8 @@ function renderFinalizadas(){
       <select id="hPeriod">${[["all","Todo o período"],["today","Hoje"],["7","Últimos 7 dias"],["30","Últimos 30 dias"],["90","Últimos 90 dias"],["month","Este mês"],["lastmonth","Mês passado"],["custom","Escolher datas…"]].map(([k,l])=>`<option value="${k}" ${k===FZ.per?"selected":""}>${l}</option>`).join("")}</select>
       <label class="fzd">De <input type="date" id="fzFrom" value="${FZ.from}" title="dd/mm/aaaa"></label>
       <label class="fzd">até <input type="date" id="fzTo" value="${FZ.to}" title="dd/mm/aaaa"></label>
-      <div class="seg fzt">${[["todos","Tudo"],["demandas","📋 Demandas"],["missoes","🎯 Missões da agenda"]].map(([k,l]) => `<button data-fzt="${k}" class="${FZ.tipo===k?"on":""}">${l}</button>`).join("")}</div>
-      <span class="note">${dem.length} demanda(s) · ${mis.length} missão(ões)</span></div>
+      <div class="seg fzt">${[["todos","Tudo"],["demandas","📋 Demandas"],["missoes","🎯 Agenda (missões e eventos)"]].map(([k,l]) => `<button data-fzt="${k}" class="${FZ.tipo===k?"on":""}">${l}</button>`).join("")}</div>
+      <span class="note">${dem.length} demanda(s) · ${mis.length} da agenda</span></div>
     <div style="overflow-x:auto"><table><thead><tr>
       <th style="width:32px"><input type="checkbox" id="hAll" data-ids="${dem.map(i=>i.id).join(",")}" ${allOn?"checked":""} title="Selecionar as demandas"></th>
       <th>Item</th><th>Cadastro</th><th>Finalização</th><th class="hide-sm">Duração</th><th class="hide-sm">Atualizações</th></tr></thead>
@@ -192,7 +191,7 @@ function renderFinalizadas(){
       <td class="hide-sm">${(it.historico||[]).filter(h=>h.tipo==="nota").length}</td></tr>`)(r.it)
       : (m => `<tr class="click" data-fzm="${m.ev.id}|${m.date}">
       <td></td>
-      <td class="t"><span class="fzk mis">🎯 Missão${m.ocorr ? " · repete" : ""}</span>${esc(m.ev.titulo)}${m.ev.descricao?`<div class="sub">${esc(m.ev.descricao.slice(0,120))}${m.ev.descricao.length>120?"…":""}</div>`:""}</td>
+      <td class="t"><span class="fzk mis">${m.ev.tipo === "missao" ? "🎯 Missão" : "📅 Evento"}${m.ocorr ? " · repete" : ""}</span>${esc(m.ev.titulo)}${m.ev.descricao?`<div class="sub">${esc(m.ev.descricao.slice(0,120))}${m.ev.descricao.length>120?"…":""}</div>`:""}</td>
       <td>${fmt(m.ev.criado_em)}</td><td>${m.ocorr ? fmtDay(m.em) + " <span class=\"note\">(dia da ocorrência)</span>" : fmt(m.em)}</td>
       <td class="hide-sm">${m.ocorr ? "—" : dur(m.ev.criado_em, m.em)}</td>
       <td class="hide-sm">${(m.ev.historico||[]).filter(h=>h.tipo==="nota").length}</td></tr>`)(r.m)).join("")
