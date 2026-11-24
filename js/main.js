@@ -210,7 +210,7 @@ $("#meBtn").addEventListener("click", () => {
       <p class="note" style="margin:0 0 6px">Usuário: <b>@${esc(S.me.usuario)}</b> · ${isAdmin()?"Administrador":"Membro"}</p>
       <button class="btn" id="meAp">🎨 Aparência (tema e cores)</button>
       <button class="btn" id="mePw">🔑 Trocar minha senha</button>
-      <button class="btn" id="meAv">🔔 Avisos no celular e no computador</button>
+      <button class="btn" id="meAv">🔔 Notificações no celular e no computador${typeof PU !== "undefined" && PU.ativo ? " ✅" : ""}</button>
       <button class="btn" id="meBk">💾 Backup / exportar dados</button>
       <button class="btn" id="meGc">🔗 Conexão com o Google${GP.cfg && !GP.perm ? " ⚠️" : GP.perm ? " ✅" : ""}</button>
       <button class="btn" id="meOut">🚪 Sair</button>

@@ -477,29 +477,43 @@ async function avChecar(){
     }
   }
 }
-function avIniciar(){ clearInterval(AV.timer); if (avOn()){ avRegistrar(); avChecar(); AV.timer = setInterval(avChecar, 30000); } }
+function avIniciar(){
+  clearInterval(AV.timer);
+  pushEstado().then(() => { if (avOn() && !PU.ativo){ avRegistrar(); avChecar(); AV.timer = setInterval(avChecar, 30000); } });
+}
 function openAvisos(){
-  const sup = "Notification" in window;
-  const perm = sup ? Notification.permission : "unsupported";
-  const p = prefs();
-  overlay(`<div class="mhead"><div class="mt">🔔 Avisos</div><button class="x" data-close>×</button></div>
+  const sup = "Notification" in window, pushSup = pushSuportado(), ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const instalado = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const draw = () => {
+    const perm = sup ? Notification.permission : "unsupported";
+    return `<div class="mhead"><div class="mt">🔔 Notificações</div><button class="x" data-close>×</button></div>
     <div class="mbody">
-      ${!sup ? `<p>Este navegador não mostra avisos. No celular, use o Chrome (Android) ou adicione o site à Tela de Início (iPhone).</p>` : `
-      <label class="chk"><input type="checkbox" id="avOn" ${p.avisos && perm === "granted" ? "checked" : ""}> Avisar quando um compromisso da agenda estiver chegando e dos prazos do dia</label>
-      <label class="f" style="margin-top:10px">Avisar com antecedência de</label>
-      <select class="fld" id="avMin" style="max-width:200px">${[5,10,15,30,60].map(m => `<option value="${m}" ${avMin() === m ? "selected" : ""}>${m} minutos</option>`).join("")}</select>
-      ${perm === "denied" ? `<p class="err">O navegador está bloqueando os avisos deste site. Libere em: cadeado ao lado do endereço → Notificações → Permitir.</p>` : ""}
-      <p class="note" style="margin-top:12px">Os avisos aparecem no computador e no celular enquanto o site estiver aberto (mesmo em outra aba ou minimizado). Com o site totalmente fechado, o navegador não consegue avisar: para isso, conecte o Google Agenda — os compromissos vão para ele e o próprio Google avisa no celular.</p>
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn" id="avTeste">Enviar aviso de teste</button><button class="btn primary" data-close>Pronto</button></div>`}
-    </div>`, "small");
-  if (!sup) return;
-  $("#avOn").onchange = async e => {
-    const q = prefs();
-    if (e.target.checked){ const r = await Notification.requestPermission(); if (r !== "granted"){ e.target.checked = false; toast("Permissão de avisos não concedida.", true); return; } }
-    q.avisos = e.target.checked; await savePrefs(q); avIniciar(); toast(q.avisos ? "Avisos ligados." : "Avisos desligados.");
+      ${!pushSup ? (ios && !instalado
+          ? `<p>No iPhone/iPad, as notificações só funcionam com o sistema instalado na tela inicial: no Safari, toque em <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b>, abra pelo ícone criado e volte aqui.</p>`
+          : `<p>Este navegador não aceita notificações push. Use o Chrome, Edge ou Firefox (no computador ou Android) ou o Safari no iPhone com o sistema instalado na tela inicial.</p>`) : `
+      <div class="pushst ${PU.ativo ? "on" : ""}">${PU.ativo ? "✅ <b>Notificações ativadas neste aparelho.</b> Elas chegam mesmo com o site fechado." : perm === "denied" ? "⛔ <b>O navegador está bloqueando as notificações deste site.</b>" : "🔕 <b>Notificações desativadas neste aparelho.</b>"}</div>
+      ${perm === "denied" ? `<p class="note">Para liberar: clique no cadeado ao lado do endereço do site → Notificações → Permitir. No celular: configurações do navegador → Configurações do site → Notificações.</p>` : ""}
+      <p class="note" style="margin:10px 0 4px">Você recebe aviso de:</p>
+      <ul class="note pushlist"><li>📅 Compromissos e missões da agenda chegando</li><li>📌 Prazos de demandas e passos do dia (às 8h)</li><li>📋 Demandas e compromissos novos que alguém colocou para você</li><li>👥 Demandas compartilhadas com você</li></ul>
+      <label class="f" style="margin-top:8px">Avisar compromissos com antecedência de</label>
+      <select class="fld" id="avMin" style="max-width:200px">${[5,10,15,30,60,120].map(m => `<option value="${m}" ${avMin() === m ? "selected" : ""}>${m < 60 ? m + " minutos" : m / 60 + " hora(s)"}</option>`).join("")}</select>
+      <div class="err" id="avE"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap">
+        ${PU.ativo ? `<button class="btn" id="puOff">Desativar neste aparelho</button><button class="btn" id="puTeste">🔔 Enviar teste</button>` : perm !== "denied" ? `<button class="btn primary" id="puOn">🔔 Ativar neste aparelho</button>` : ""}
+        <button class="btn" data-close>Fechar</button></div>
+      <p class="note" style="margin-top:12px">Ative em cada aparelho que quiser receber (computador do trabalho, celular…). As notificações são verificadas a cada minuto.</p>`}
+    </div>`;
   };
-  $("#avMin").onchange = e => { const q = prefs(); q.avisosMin = +e.target.value; savePrefs(q); };
-  $("#avTeste").onclick = async () => { if (Notification.permission !== "granted"){ const r = await Notification.requestPermission(); if (r !== "granted") return; } await avRegistrar(); avNotificar("🔔 Acompanhamento ADM", "Os avisos estão funcionando.", "teste" + Date.now()); };
+  const ov = overlay(draw(), "small");
+  const bind = () => {
+    $$("#ov [data-close]").forEach(b => b.onclick = () => closeModal());
+    const mi = $("#avMin"); if (mi) mi.onchange = e => { const q = prefs(); q.avisosMin = +e.target.value; savePrefs(q); toast("Antecedência salva."); };
+    const on = $("#puOn"); if (on) on.onclick = async () => { on.disabled = true; $("#avE").textContent = ""; try { await pushAtivar(); toast("Notificações ativadas neste aparelho."); re(); } catch(e){ $("#avE").textContent = e.message; on.disabled = false; } };
+    const off = $("#puOff"); if (off) off.onclick = async () => { await pushDesativar(); toast("Notificações desativadas neste aparelho."); re(); };
+    const te = $("#puTeste"); if (te) te.onclick = async () => { te.disabled = true; try { const r = await pushTeste(); toast(r); } catch(e){ toast("Falhou: " + e.message, true); } te.disabled = false; };
+  };
+  const re = () => { ov.querySelector(".modal").innerHTML = draw(); bind(); };
+  bind();
 }
 
 /* ===================== BACKUP / EXPORTAR DADOS ===================== */

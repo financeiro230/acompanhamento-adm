@@ -798,3 +798,6 @@ li:hover>.tl-when .updacts,.pkupd:hover .updacts{opacity:1}
 .gpbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2500;display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;box-shadow:0 8px 28px rgba(20,25,40,.2);padding:10px 12px;font-size:13.5px;max-width:min(680px,calc(100vw - 24px))}
 .gpbar .x{border:0;background:none;font-size:18px;cursor:pointer;color:var(--muted)}
 @media (max-width:600px){.gpbar{flex-wrap:wrap;bottom:70px}}
+.pushst{padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--ink) 6%,transparent);font-size:14px}
+.pushst.on{background:color-mix(in srgb,#16a34a 14%,transparent)}
+.pushlist{margin:0 0 6px;padding-left:18px;line-height:1.7}

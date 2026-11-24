@@ -1,6 +1,7 @@
 // Acompanhamento ADM — conexão permanente com o Google (Agenda + Drive)
 // Guarda a autorização permanente (refresh token) no banco e entrega ao site um acesso novo sempre que precisar.
 // Segredos necessários (Supabase → Edge Functions → Secrets): GOOGLE_CLIENT_SECRET (e opcionalmente GOOGLE_CLIENT_ID)
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const CID = Deno.env.get("GOOGLE_CLIENT_ID") ?? "129647163515-cgeiutvud4rv0ihjulk79mm3i7ppe34h.apps.googleusercontent.com";
@@ -14,7 +15,9 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+  let chave = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!chave) { try { const k = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}"); chave = k.default ?? Object.values(k)[0] ?? ""; } catch { /* sem chave */ } }
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, chave as string, { auth: { persistSession: false, autoRefreshToken: false } });
   const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   const { data: { user }, error } = await admin.auth.getUser(jwt);
   if (error || !user) return json({ erro: "login" }, 401);
