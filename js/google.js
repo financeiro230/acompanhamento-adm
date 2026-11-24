@@ -67,7 +67,7 @@ function agRange(){
 }
 async function gEnsure(force){
   if (!gOn() || !gReady() || G.loading) return;
-  if (!isOwnSpace()){ const r = agRange(); await gTeamEnsure(r.from, r.to, force); if (S.view === "agenda" && !modalOpen()) renderAgenda(); return; }
+  if (!isOwnSpace()){ const r = agRange(); const mudou = await gTeamEnsure(r.from, r.to, force); if (mudou && S.view === "agenda" && !modalOpen()) renderAgenda(); return; }
   const need = agRange(), today = todayYmd();
   const from = need.from < ymd(addDays(new Date(), -35)) ? need.from : ymd(addDays(new Date(), -35));
   const to = need.to > ymd(addDays(new Date(), 45)) ? need.to : ymd(addDays(new Date(), 45));
@@ -83,7 +83,7 @@ async function gEnsure(force){
       items = items.concat(r.items || []); page = r.nextPageToken;
     } while (page && items.length < 5000);
     G.events = items.filter(e => e.status !== "cancelled"); G.from = from; G.to = to;
-  } catch(e){ G.err = errMsg(e); console.error(e); }
+  } catch(e){ G.err = errMsg(e); console.error(e); G.from = from; G.to = to; /* não tenta de novo em ciclo; o botão Atualizar força */ }
   finally { G.loading = false; }
   await gTeamEnsure(from, to, force);
   if (S.view === "agenda" && !modalOpen()) renderAgenda();
@@ -222,16 +222,21 @@ function teamEmails(){
   return (prefs().gTeam || []).filter(em => (S.equipeGoogle || []).some(p => p.google_email === em && p.id !== S.me.id));
 }
 async function gTeamEnsure(from, to, force){
-  const list = teamEmails(); if (!list.length) return;
+  const list = teamEmails(); if (!list.length) return false;
+  let mudou = false;
   await Promise.all(list.map(async em => {
     const t = G.team[em];
     if (!force && t && t.from && t.from <= from && t.to >= to) return;
+    if (G.teamLoading && G.teamLoading[em]) return;
+    G.teamLoading = G.teamLoading || {}; G.teamLoading[em] = true; mudou = true;
     try {
       const q = new URLSearchParams({ singleEvents: "true", orderBy: "startTime", maxResults: "2500", timeMin: parseYmd(from).toISOString(), timeMax: addDays(parseYmd(to), 1).toISOString() });
       const r = await gFetch(`/calendars/${encodeURIComponent(em)}/events?` + q.toString());
       G.team[em] = { events: (r.items || []).filter(e => e.status !== "cancelled"), from, to, err: null };
     } catch(e){ G.team[em] = { events: [], from, to, err: /not found|notFound|404/i.test(errMsg(e)) ? "sem acesso (peça para compartilhar a agenda com você)" : errMsg(e) }; }
+    finally { G.teamLoading[em] = false; }
   }));
+  return mudou;
 }
 function gTeamSideHtml(){
   if (!gReady()) return "";
