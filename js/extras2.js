@@ -10,7 +10,7 @@ function pessoasChips(attr, sel, excluir){
 }
 
 /* ===================== MÓDULOS (abas) por pessoa ===================== */
-const MODS = [["agenda","📅 Agenda"],["kanban","📋 Kanban"],["notas","📝 Notas"],["arquivos","📁 Arquivos"],["contatos","📇 Contatos"],["parados","⏳ Parados"],["finalizadas","✅ Finalizadas"]];
+const MODS = [["agenda","📅 Agenda"],["kanban","📋 Kanban"],["notas","📝 Notas"],["arquivos","📁 Arquivos"],["contatos","📇 Contatos"],["infos","🗂 Informações"],["parados","⏳ Parados"],["finalizadas","✅ Finalizadas"]];
 const podeModulo = m => m === "equipe" ? isAdmin() : (!Array.isArray(S.me.modulos) || S.me.modulos.includes(m));
 function aplicarModulos(){
   $$(".tab[data-view]").forEach(t => { const v = t.dataset.view; if (v !== "equipe") t.classList.toggle("hidden", !podeModulo(v)); });
@@ -123,9 +123,9 @@ function compartBadge(it){
   const n = (it.participantes || []).length; return n ? `<span class="tag share" title="Compartilhada com ${n} pessoa(s)">👥 ${n}</span>` : "";
 }
 function compartDHtml(it){
-  if (demandaDeOutro(it)) return `<div class="section"><h3>👥 Compartilhada</h3><p class="note" style="margin:0">Demanda de <b>${esc(nomeDe(it.dono))}</b>, compartilhada com você${(it.participantes||[]).length > 1 ? ` e mais ${(it.participantes.length - 1)} pessoa(s)` : ""}. Você pode atualizar, mover e anexar; só a dona pode excluir.</p></div>`;
+  if (demandaDeOutro(it)) return `<div class="section"><h3>👥 Compartilhada</h3><p class="note" style="margin:0">Demanda de <b>${esc(nomeDe(it.dono))}</b>, compartilhada com ${(it.participantes || []).map(nomeDe).join(", ")}. Todos que estão na demanda editam normalmente (prazo, passos, atualizações, anexos) e veem as mesmas atualizações; só quem criou pode excluir a demanda.</p></div>`;
   return `<div class="section"><h3>👥 Compartilhar com</h3>${pessoasChips("data-dshare", it.participantes || [], [it.dono])}
-    <p class="note" style="margin:4px 0 0">Quem você marcar vê esta demanda no próprio kanban e pode atualizar, mover e anexar.</p></div>`;
+    <p class="note" style="margin:4px 0 0">Quem você marcar vê esta demanda no próprio kanban e edita normalmente (prazo, passos, atualizações, anexos). As atualizações aparecem para todos. Ela também aparece para você quando abrir o espaço dessa pessoa.</p></div>`;
 }
 document.addEventListener("change", e => {
   const c = e.target.closest && e.target.closest("[data-dshare]"); if (!c || !K.openId) return;
@@ -144,13 +144,14 @@ function openNotaView(id){
   const ov = overlay(`<div class="nedit nview" ${n.cor ? `style="--nc:${n.cor}"` : ""}>
     <div class="nedhead"><div class="ntitle" style="padding:4px 0">${esc(n.titulo) || `<span class="note">Sem título</span>`}</div>
       <button type="button" class="x" data-nv="edit" title="Editar">✏️</button><button type="button" class="x" data-close title="Fechar">×</button></div>
+    ${notaShareTag(n, true)}
     ${n.texto ? `<div class="nvtext">${linkify(n.texto)}</div>` : ""}
     ${it.length ? `<ul class="nitems nvitems">${pend.map(li).join("")}</ul>${done.length ? `<div class="note" style="margin:8px 0 2px">${done.length} marcado(s)</div><ul class="nitems nvitems">${done.map(li).join("")}</ul>` : ""}` : ""}
     ${(n.marcadores || []).length ? `<div class="nlabels" style="margin-top:12px">${n.marcadores.map(l => `<span class="nlabel">🏷 ${esc(l)}</span>`).join("")}</div>` : ""}
     <div class="nfoot" style="margin-top:14px"><span class="note">Editada ${fmt(n.atualizado_em)}</span><span class="nacts">
       <button type="button" data-nv="pin" title="${n.fixada ? "Desafixar" : "Fixar"}">📌</button>
       <button type="button" data-nv="arq" title="${n.arquivada ? "Desarquivar" : "Arquivar"}">${n.arquivada ? "📤" : "🗄"}</button>
-      <button type="button" data-nv="del" title="Excluir">🗑</button>
+      ${n.dono === S.me.id ? `<button type="button" data-nv="share" title="Compartilhar">👥</button><button type="button" data-nv="del" title="Excluir">🗑</button>` : ""}
       <button type="button" class="btn sm primary" data-nv="edit">✏️ Editar</button></span></div></div>`, "mid nmodal");
   ov.addEventListener("click", e => {
     const k = e.target.closest("[data-nvk]");
@@ -161,6 +162,7 @@ function openNotaView(id){
     if (a === "pin"){ c.fixada = !c.fixada; if (c.fixada) c.arquivada = false; saveNota(c); closeModal(true); openNotaView(id); }
     if (a === "arq"){ c.arquivada = !c.arquivada; if (c.arquivada) c.fixada = false; saveNota(c); closeModal(true); toast(c.arquivada ? "Nota arquivada." : "Nota de volta às notas."); }
     if (a === "del") delNota(id);
+    if (a === "share"){ closeModal(true); openNotaShare(id); }
   });
 }
 const labelsAll = () => [...new Set([...(prefs().marcadores || []), ...notaLabels()])].sort((a, z) => a.localeCompare(z, "pt-BR"));
@@ -208,6 +210,21 @@ document.addEventListener("click", e => {
   const ck = $("#ck"); if (ck && K.openId && getD(K.openId)) ck.innerHTML = checklistHtml(getD(K.openId));
   if (b.dataset.cktog) openDemandaPeek(b.dataset.cktog);
 });
+
+/* ---------- notas compartilhadas ---------- */
+function notaShareTag(n, longo){
+  if (n.dono !== S.me.id) return `<div class="nshare">👥 ${longo ? "Compartilhada por " : "de "}${esc(nomeDe(n.dono))}</div>`;
+  const m = n.membros || []; return m.length ? `<div class="nshare">👥 ${longo ? "Compartilhada com " + m.map(nomeDe).join(", ") : m.length + " pessoa(s)"}</div>` : "";
+}
+function openNotaShare(id){
+  const n = S.notas.find(x => x.id === id); if (!n) return;
+  overlay(`<div class="mhead"><div class="mt">👥 Compartilhar nota</div><button class="x" data-close>×</button></div>
+    <div class="mbody"><p class="note" style="margin-top:0">Quem você marcar vê "${esc(n.titulo || "Sem título")}" nas notas dele e pode editar (texto, lista, cor, marcadores). Só você pode excluir ou mudar com quem está compartilhada.</p>
+      ${pessoasChips("data-nsm", n.membros || [], [S.me.id])}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="nsOk">Salvar</button></div></div>`, "small");
+  $("#nsOk").onclick = () => { const c = clone(n); c.membros = $$("[data-nsm]").filter(x => x.checked).map(x => x.dataset.nsm); saveNota(c); closeModal(true);
+    toast(c.membros.length ? `Nota compartilhada com ${c.membros.map(nomeDe).join(", ")}.` : "A nota não está mais compartilhada."); };
+}
 
 /* ===================== GOOGLE: conexão mais estável ===================== */
 // guarda a conexão entre abas e renova sozinha no próximo clique quando estiver perto de vencer (o Google dá 1 hora por vez)
@@ -370,7 +387,7 @@ const CT_ORDEM = ["nome", "whatsapp", "telefone", "email", "empresa", "cargo", "
 function ctParse(txt){
   const linhas = txt.replace(/\r/g, "").split("\n").map(l => l.trim()).filter(Boolean);
   if (!linhas.length) return [];
-  const sep = linhas[0].includes("\t") ? "\t" : linhas[0].includes(";") ? ";" : ",";
+  const sep = txt.includes("\t") ? "\t" : linhas[0].includes(";") ? ";" : ",";
   const split = l => { const out = []; let cur = "", q = false; for (const ch of l){ if (ch === '"') q = !q; else if (ch === sep && !q){ out.push(cur); cur = ""; } else cur += ch; } out.push(cur); return out.map(x => x.trim()); };
   let ordem = CT_ORDEM, ini = 0;
   const h = split(linhas[0]);
@@ -492,13 +509,14 @@ const bkLbl = (dono, k) => { if (k === FIN) return "Finalizado"; const p = S.per
 const bkDt = ts => ts ? new Date(+ts).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 const bkYmd = s => s ? fmtYmd(s, { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
 async function bkColetar(tudo){
-  const [dem, evs, notas, cts, pastas] = await Promise.all([
+  const [dem, evs, notas, cts, pastas, ipastas, infos] = await Promise.all([
     tudo ? API.list("demandas") : API.list("demandas", S.me.id),
     tudo ? API.list("eventos") : API.list("eventos", S.me.id),
-    API.list("notas", S.me.id), API.list("contatos").catch(() => []), API.list("pastas_compartilhadas").catch(() => [])]);
+    API.list("notas", S.me.id), API.list("contatos").catch(() => []), API.list("pastas_compartilhadas").catch(() => []),
+    API.list("info_pastas").catch(() => []), API.list("infos").catch(() => [])]);
   return { app: "acompanhamento-adm", versao: 1, gerado_em: new Date().toISOString(), por: { id: S.me.id, nome: S.me.nome }, escopo: tudo ? "equipe" : "meu",
     pessoas: (S.nomes || []).map(p => ({ id: p.id, nome: p.nome })), preferencias: S.me.preferencias || {},
-    tabelas: { demandas: dem, eventos: evs, notas, contatos: cts, pastas_compartilhadas: pastas } };
+    tabelas: { demandas: dem, eventos: evs, notas, contatos: cts, pastas_compartilhadas: pastas, info_pastas: ipastas, infos } };
 }
 function bkXls(b){
   const x = v => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\n/g, "&#10;");
@@ -521,6 +539,8 @@ function bkXls(b){
     + sheet("Agenda", ["Tipo", "Título", "Pessoa", "Data", "Até", "Início", "Fim", "Local", "Repetição", "Prioridade", "Situação", "Pessoal", "Descrição", "Atualizações"], evs)
     + sheet("Notas", ["Título", "Conteúdo", "Marcadores", "Fixada", "Arquivada", "Editada em"], nts)
     + sheet("Contatos", ["Nome", "Empresa", "Cargo", "WhatsApp", "Telefone", "E-mail", "Observações", "Quem vê", "Cadastrado por"], cts)
+    + sheet("Insumos", ["Pasta", "Seção", "Insumo / produto", "Contato", "Telefone / e-mail / site", "Última compra", "Detalhe", "Link", "Observações"], (t.infos || []).filter(i => ((t.info_pastas || []).find(p => p.id === i.pasta) || {}).tipo === "insumos").map(i => { const d = i.dados, p = t.info_pastas.find(x => x.id === i.pasta); return [p.nome, d.secao, d.produto, d.contato, d.telefone, bkYmd(d.ult_data), d.ult_detalhe, d.link, d.obs]; }))
+    + sheet("Acessos", ["Pasta", "Unidade / setor", "Site", "Login", "Senha", "Última alteração", "Observações"], (t.infos || []).filter(i => ((t.info_pastas || []).find(p => p.id === i.pasta) || {}).tipo === "acessos").map(i => { const d = i.dados, p = t.info_pastas.find(x => x.id === i.pasta); return [p.nome, d.unidade, d.site, d.login, d.senha, bkYmd(d.alterado), d.obs]; }))
     + `</Workbook>`;
 }
 function openBackup(){
@@ -531,7 +551,7 @@ function openBackup(){
         <label class="chk"><input type="radio" name="bkesc" value="meu" checked> 👤 Só os meus dados</label>
         <label class="chk"><input type="radio" name="bkesc" value="tudo"> 👥 Tudo o que eu posso ver (equipe)</label></div>` : ""}
       <div class="bkopts">
-        <button class="btn" data-bk="xls"><b>📊 Planilha do Excel</b><span class="note">Demandas, agenda, notas e contatos em abas, para ler, filtrar ou imprimir.</span></button>
+        <button class="btn" data-bk="xls"><b>📊 Planilha do Excel</b><span class="note">Demandas, agenda, notas, contatos, insumos e acessos em abas. Atenção: a aba Acessos leva as senhas.</span></button>
         <button class="btn" data-bk="json"><b>💾 Backup completo (.json)</b><span class="note">Cópia de segurança com tudo (histórico, checklists, anexos). Serve para restaurar depois.</span></button>
       </div>
       <h3 style="margin:18px 0 6px;font-size:14px">⬆ Restaurar um backup</h3>
@@ -556,7 +576,7 @@ function openBackup(){
     const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     let bk; try { bk = JSON.parse(await f.text()); } catch { toast("Esse arquivo não é um backup válido.", true); return; }
     if (!bk || bk.app !== "acompanhamento-adm" || !bk.tabelas){ toast("Esse arquivo não é um backup deste sistema.", true); return; }
-    const t = bk.tabelas, ord = ["demandas", "eventos", "notas", "contatos"], n = ord.reduce((s, k) => s + (t[k] || []).length, 0);
+    const t = bk.tabelas, ord = ["demandas", "eventos", "notas", "contatos", "info_pastas", "infos"], n = ord.reduce((s, k) => s + (t[k] || []).length, 0);
     confirmBox("Restaurar este backup?", `Gerado em ${bkDt(Date.parse(bk.gerado_em))} por ${bk.por ? bk.por.nome : "?"}: ${(t.demandas || []).length} demanda(s), ${(t.eventos || []).length} compromisso(s), ${(t.notas || []).length} nota(s) e ${(t.contatos || []).length} contato(s). Itens que já existem voltam para a versão do backup.`, "Restaurar", async () => {
       let ok = 0, fal = 0; toast(`Restaurando ${n} itens…`);
       for (const k of ord) for (const r of (t[k] || [])){ try { await API.save(k, r); ok++; } catch { fal++; } }

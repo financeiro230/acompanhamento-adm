@@ -224,10 +224,13 @@ const NOTE_CORES = [null, "#f28b82", "#fbbc04", "#fff475", "#ccff90", "#a7ffeb",
 const NOTE_NOMES = ["Padrão", "Vermelho", "Laranja", "Amarelo", "Verde", "Verde-água", "Azul-claro", "Azul", "Roxo", "Rosa", "Marrom", "Cinza"];
 const N = { q: "", arq: false, loaded: false, lab: "" };
 async function loadNotas(){
-  try { S.notas = await API.list("notas", S.me.id); N.loaded = true; }
+  try { const [m, c] = await Promise.all([API.list("notas", S.me.id), API.listMembro ? API.listMembro("notas", S.me.id).catch(() => []) : []]);
+    S.notas = m.concat(c.filter(x => !m.some(y => y.id === x.id))); N.loaded = true; }
   catch(e){ S.notas = S.notas || []; N.err = errMsg(e); }
 }
-const noteMatch = n => { if (N.lab && !(n.marcadores || []).includes(N.lab)) return false; const q = N.q.trim().toLowerCase(); if (!q) return true;
+const noteMatch = n => { if (N.lab && !(n.marcadores || []).includes(N.lab)) return false; const q = N.q.trim().toLowerCase();
+  if (!q && !N.lab && !N.arq && !n.fixada && (n.marcadores || []).length) return false;   // com marcador e não fixada: fica só na pasta do marcador
+  if (!q) return true;
   return (n.titulo + " " + n.texto + " " + (n.itens || []).map(i => i.texto).join(" ") + " " + (n.marcadores || []).join(" ")).toLowerCase().includes(q); };
 const noteEmpty = n => !n.titulo.trim() && !n.texto.trim() && !(n.itens || []).some(i => i.texto.trim());
 function noteCard(n){
@@ -235,14 +238,14 @@ function noteCard(n){
   const show = [...pend, ...done].slice(0, 8);
   return `<article class="ncard" data-nota="${n.id}" ${n.cor ? `style="--nc:${n.cor}"` : ""}>
     <button class="npin ${n.fixada ? "on" : ""}" data-npin="${n.id}" title="${n.fixada ? "Desafixar" : "Fixar"}">📌</button>
-    ${n.titulo ? `<h4>${esc(n.titulo)}</h4>` : ""}
+    ${notaShareTag(n)}${n.titulo ? `<h4>${esc(n.titulo)}</h4>` : ""}
     ${n.texto ? `<div class="ntxt">${esc(n.texto)}</div>` : ""}
     ${it.length ? `<ul class="nitems">${show.map(i => `<li class="${i.feito ? "done" : ""}"><input type="checkbox" data-nck="${n.id}|${i.id}" ${i.feito ? "checked" : ""}><span>${esc(i.texto)}</span></li>`).join("")}</ul>
       ${it.length > show.length ? `<div class="note">+ ${it.length - show.length} item(ns)</div>` : ""}` : ""}
     ${(n.marcadores || []).length ? `<div class="nlabels">${n.marcadores.map(l => `<span class="nlabel" data-nlabf="${esc(l)}">🏷 ${esc(l)}</span>`).join("")}</div>` : ""}
     <div class="nfoot"><span class="note">${fmtD(n.atualizado_em)}</span><span class="nacts">
       <button data-narq="${n.id}" title="${n.arquivada ? "Desarquivar" : "Arquivar"}">${n.arquivada ? "📤" : "🗄"}</button>
-      <button data-ndelx="${n.id}" title="Excluir">🗑</button></span></div></article>`;
+      ${n.dono === S.me.id ? `<button data-nshare="${n.id}" title="Compartilhar">👥</button><button data-ndelx="${n.id}" title="Excluir">🗑</button>` : ""}</span></div></article>`;
 }
 function renderNotas(){
   const v = $("#v-notas");
@@ -255,12 +258,12 @@ function renderNotas(){
       <div class="ksearch"><span>🔎</span><input id="nSearch" placeholder="Pesquisar nas notas…" value="${esc(N.q)}"></div>
       <div class="seg"><button data-narqv="0" class="${!N.arq ? "on" : ""}">📝 Notas</button><button data-narqv="1" class="${N.arq ? "on" : ""}">🗄 Arquivadas${narq ? ` (${narq})` : ""}</button></div>
     </div>
-    ${`<div class="nlabbar"><button class="nlabel ${!N.lab ? "on" : ""}" data-nlabf="">Todas</button>${labelsAll().map(l => `<button class="nlabel ${N.lab === l ? "on" : ""}" data-nlabf="${esc(l)}">🏷 ${esc(l)}</button>`).join("")}<button class="nlabel ghostl" data-nlman title="Criar, renomear e excluir marcadores">✏️ Editar marcadores</button></div>`}
+    ${`<div class="nlabbar"><button class="nlabel ${!N.lab ? "on" : ""}" data-nlabf="">📝 Notas</button>${labelsAll().map(l => { const q = (S.notas || []).filter(n => !n.arquivada && (n.marcadores || []).includes(l)).length; return `<button class="nlabel ${N.lab === l ? "on" : ""}" data-nlabf="${esc(l)}" title="Pasta do marcador ${esc(l)}">📁 ${esc(l)}${q ? ` <small>${q}</small>` : ""}</button>`; }).join("")}<button class="nlabel ghostl" data-nlman title="Criar, renomear e excluir marcadores">✏️ Editar marcadores</button></div>`}
     ${!N.arq ? `<div class="ncompose"><button class="ncin" data-nnew="texto">Criar uma nota…</button><button class="btn ghost" data-nnew="lista" title="Nova lista">☑ Lista</button></div>` : ""}
     ${!isOwnSpace() ? `<p class="note" style="text-align:center">As notas são pessoais: aqui aparecem sempre as suas, nunca as de outra pessoa.</p>` : ""}
     ${fix.length ? `<h5 class="nsec">📌 Fixadas</h5><div class="ngrid">${fix.map(noteCard).join("")}</div>${outras.length ? `<h5 class="nsec">Outras</h5>` : ""}` : ""}
     ${outras.length ? `<div class="ngrid">${outras.map(noteCard).join("")}</div>` : ""}
-    ${!all.length ? `<div class="nempty">${N.q ? "Nenhuma nota encontrada." : N.arq ? "Nenhuma nota arquivada." : "💡 Suas notas aparecem aqui.<br><span class=\"note\">Anote ideias, listas e lembretes rápidos. Só você vê.</span>"}</div>` : ""}
+    ${!all.length ? `<div class="nempty">${N.q ? "Nenhuma nota encontrada." : N.arq ? "Nenhuma nota arquivada." : (N.lab ? `📁 Nenhuma nota com o marcador ${esc(N.lab)}.` : "💡 Suas notas aparecem aqui.<br><span class=\"note\">Anote ideias, listas e lembretes rápidos. Notas com marcador (e não fixadas) ficam na pasta do marcador.</span>")}</div>` : ""}
   </div>`;
   const s = $("#nSearch");
   s.oninput = () => { const p = s.selectionStart; N.q = s.value; renderNotas(); const n = $("#nSearch"); n.focus(); n.setSelectionRange(p, p); };
@@ -285,6 +288,7 @@ document.addEventListener("click", e => {
   const pin = t.closest("[data-npin]"); if (pin){ const n = clone(getN(pin.dataset.npin)); n.fixada = !n.fixada; if (n.fixada) n.arquivada = false; saveNota(n); return; }
   const arq = t.closest("[data-narq]"); if (arq){ const n = clone(getN(arq.dataset.narq)); n.arquivada = !n.arquivada; if (n.arquivada) n.fixada = false; saveNota(n); toast(n.arquivada ? "Nota arquivada." : "Nota de volta às notas."); return; }
   const dl = t.closest("[data-ndelx]"); if (dl){ delNota(dl.dataset.ndelx); return; }
+  const sh = t.closest("[data-nshare]"); if (sh){ openNotaShare(sh.dataset.nshare); return; }
   const ck = t.closest("[data-nck]");
   if (ck){ const [nid, iid] = ck.dataset.nck.split("|"); const n = clone(getN(nid)); const i = n.itens.find(x => x.id === iid); i.feito = ck.checked; saveNota(n); return; }
   if (t.closest("[data-nlman]")){ openMarcadores(); return; }
@@ -317,14 +321,16 @@ function openNota(id, lista){
       <span class="nacts">
         <button type="button" id="nMode" title="${modoLista ? "Mostrar como texto" : "Mostrar caixas de seleção"}">${modoLista ? "📝" : "☑"}</button>
         <button type="button" id="nArq" title="${d.arquivada ? "Desarquivar" : "Arquivar"}">${d.arquivada ? "📤" : "🗄"}</button>
-        ${orig ? `<button type="button" id="nDel" title="Excluir">🗑</button>` : ""}
+        ${orig && d.dono === S.me.id ? `<button type="button" id="nDel" title="Excluir">🗑</button>` : ""}
         <button type="button" class="btn sm" data-close>Fechar</button></span></div>
     ${orig ? `<div class="note" style="margin-top:6px;text-align:right">Editada ${fmt(d.atualizado_em)}</div>` : ""}</div>`, "mid nmodal", {
     onClose: () => {
       d.titulo = d.titulo.trim(); d.itens = d.itens.filter(i => i.texto.trim());
       if (!orig && noteEmpty(d)) return;
       if (orig && noteEmpty(d)){ toast("Nota vazia descartada."); S.notas = S.notas.filter(x => x.id !== d.id); renderNotas(); remove("notas", d.id); return; }
-      if (JSON.stringify(d) !== snap) saveNota(d);
+      if (JSON.stringify(d) !== snap){ saveNota(d);
+        const antes = JSON.parse(snap).marcadores || [];
+        if (!d.fixada && !N.lab && d.marcadores.length && !antes.length) toast(`Nota guardada na pasta 📁 ${d.marcadores[0]}.`); }
     },
   });
   const redraw = () => { $("#nBody").innerHTML = body(); };

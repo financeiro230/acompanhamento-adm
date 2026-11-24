@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-title" content="Acomp. ADM">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=202611231930">
+<link rel="stylesheet" href="css/app.css?v=202611241229">
 </head>
 <body data-t="claro">
 
@@ -51,6 +51,7 @@
       <button class="tab" data-view="notas" title="Anotações rápidas, só suas">📝 <span>Notas</span></button>
       <button class="tab" data-view="arquivos" title="Seus arquivos e links no Google Drive">📁 <span>Arquivos</span></button>
       <button class="tab" data-view="contatos" title="Contatos da equipe: fornecedores, parceiros…">📇 <span>Contatos</span></button>
+      <button class="tab" data-view="infos" title="Controle de informações: insumos, materiais, acessos e senhas">🗂 <span>Informações</span></button>
       <button class="tab" data-view="parados" title="Demandas sem atualização há dias">⏳ <span>Parados</span> <b class="count" id="stCount">0</b></button>
       <button class="tab" data-view="finalizadas">✅ <span>Finalizadas</span> <b class="count" id="finCount">0</b></button>
       <button class="tab admin-only" data-view="equipe">👥 <span>Equipe</span></button>
@@ -69,6 +70,7 @@
     <section id="v-notas" class="view"></section>
     <section id="v-arquivos" class="view"></section>
     <section id="v-contatos" class="view"></section>
+    <section id="v-infos" class="view"></section>
     <section id="v-parados" class="view"></section>
     <section id="v-finalizadas" class="view"></section>
     <section id="v-equipe" class="view"></section>
@@ -80,14 +82,17 @@
 <div id="toast" class="hidden"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/core.js?v=202611231930"></script>
-<script src="js/kanban.js?v=202611231930"></script>
-<script src="js/agenda.js?v=202611231930"></script>
-<script src="js/equipe.js?v=202611231930"></script>
-<script src="js/extras.js?v=202611231930"></script>
-<script src="js/arquivos.js?v=202611231930"></script>
-<script src="js/google.js?v=202611231930"></script>
-<script src="js/extras2.js?v=202611231930"></script>
-<script src="js/main.js?v=202611231930"></script>
+<script src="js/core.js?v=202611241229"></script>
+<script src="js/kanban.js?v=202611241229"></script>
+<script src="js/agenda.js?v=202611241229"></script>
+<script src="js/equipe.js?v=202611241229"></script>
+<script src="js/extras.js?v=202611241229"></script>
+<script src="js/arquivos.js?v=202611241229"></script>
+<script src="js/google.js?v=202611241229"></script>
+<script src="js/extras2.js?v=202611241229"></script>
+<script src="js/gperm.js?v=202611241229"></script>
+<script src="js/infos.js?v=202611241229"></script>
+<script src="js/extras3.js?v=202611241229"></script>
+<script src="js/main.js?v=202611241229"></script>
 </body>
 </html>

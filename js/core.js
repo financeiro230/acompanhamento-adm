@@ -73,7 +73,7 @@ let sb = null;
 const API = window.API_MOCK || {
   init(){
     sb = window.supabase.createClient(CFG.url, CFG.key, {
-      auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true }
+      auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
     });
   },
   async sessionUserId(){ const { data } = await sb.auth.getSession(); return data.session ? data.session.user.id : null; },
@@ -81,17 +81,31 @@ const API = window.API_MOCK || {
     const { data, error } = await sb.auth.signInWithPassword({ email: usuario.trim().toLowerCase() + CFG.dominio, password: senha });
     if (error) throw error; return data.user.id;
   },
-  async logout(){ try { await sb.auth.signOut(); } catch {} },
+  async logout(){ try { await sb.auth.signOut({ scope: "local" }); } catch {} },
+  async logoutLocal(){ try { await sb.auth.signOut({ scope: "local" }); } catch {} },
+  onSignedOut(cb){ sb.auth.onAuthStateChange(ev => { if (ev === "SIGNED_OUT") cb(); }); },
   async changeMyPassword(senha){ const { error } = await sb.auth.updateUser({ password: senha }); if (error) throw error; },
   async list(table, dono){
     let q = sb.from(table).select("*");
     if (dono) q = q.eq("dono", dono);
     const { data, error } = await q; if (error) throw error; return data || [];
   },
-  async save(table, row){ const { error } = await sb.from(table).upsert(row); if (error) throw error; },
+  async save(table, row){
+    // itens compartilhados de outra pessoa: atualiza (o upsert exigiria permissão de criar no espaço dela)
+    if ((table === "demandas" || table === "notas") && row.dono && S.me && row.dono !== S.me.id){
+      const { data, error } = await sb.from(table).update(row).eq("id", row.id).select("id");
+      if (error) throw error; if (data && data.length) return;
+    }
+    const { error } = await sb.from(table).upsert(row); if (error) throw error; },
   async del(table, id){ const { error } = await sb.from(table).delete().eq("id", id); if (error) throw error; },
+  async listMembro(table, uid){ const { data, error } = await sb.from(table).select("*").contains("membros", [uid]).neq("dono", uid); if (error) throw error; return data || []; },
+  async saveMany(table, rows){ for (let i = 0; i < rows.length; i += 200){ const { error } = await sb.from(table).upsert(rows.slice(i, i + 200)); if (error) throw error; } },
   async listShared(uid){ const { data, error } = await sb.from("demandas").select("*").contains("participantes", [uid]).neq("dono", uid); if (error) throw error; return data || []; },
   async listBy(table, field, value){ const { data, error } = await sb.from(table).select("*").eq(field, value); if (error) throw error; return data || []; },
+  async fn(nome, body){
+    const { data, error } = await sb.functions.invoke(nome, { body });
+    if (error){ let j = null; try { j = await error.context.json(); } catch {} const e = new Error((j && j.erro) || error.message); e.codigo = j && j.erro; e.status = error.context && error.context.status; throw e; }
+    return data; },
   async rpc(fn, args){ const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; },
   async getConfig(chave){ const { data, error } = await sb.from("config").select("valor").eq("chave", chave).maybeSingle(); if (error) throw error; return data ? data.valor : null; },
   async setConfig(chave, valor){ const { error } = await sb.from("config").upsert({ chave, valor, atualizado_em: new Date().toISOString() }); if (error) throw error; },

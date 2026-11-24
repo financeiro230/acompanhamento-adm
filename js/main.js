@@ -13,6 +13,7 @@ function renderAll(){
   else if (S.view === "notas") renderNotas();
   else if (S.view === "arquivos") renderArquivos();
   else if (S.view === "contatos") renderContatos();
+  else if (S.view === "infos") renderInfos();
   renderBatch();
   if (K.openId && modalOpen()) refreshDemandaModal();
 }
@@ -81,7 +82,7 @@ async function reloadSpace(showSpin){
     if (S.view === "parados" && ST.scope === "team") S.all = null;
     let [d, e, cols, atr] = await Promise.all([API.list("demandas", S.space), API.list("eventos", S.space), API.getConfig("colunas").catch(() => null),
       canAssign() ? API.listBy("eventos", "criado_por", S.me.id).catch(() => []) : Promise.resolve([])]);
-    if (isOwnSpace()){ try { const sh = await API.listShared(S.me.id); const ids = new Set(d.map(x => x.id)); d = d.concat(sh.filter(x => !ids.has(x.id))); } catch {} }
+    { try { const sh = await API.listShared(S.space); const ids = new Set(d.map(x => x.id)); d = d.concat(sh.filter(x => !ids.has(x.id))); } catch {} }
     S.demandas = d; S.eventos = e; S.globalCols = cols; applySpaceCols();
     S.atribuidas = atr.filter(x => x.dono !== S.me.id);
     if (showSpin) $("#saving").textContent = "";
@@ -100,19 +101,20 @@ async function startApp(uid){
   if (!me){ await API.logout(); showLogin("Seu usuário não tem perfil cadastrado. Fale com o administrador."); return; }
   if (!me.ativo){ await API.logout(); showLogin("Este usuário está desativado."); return; }
   S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
-  S.notas = []; N.loaded = false; N.q = ""; A.filt.concl = undefined;
+  S.notas = []; N.loaded = false; N.q = ""; N.lab = ""; N.arq = false; INF.pasta = null; A.filt.concl = undefined;
   applyTheme(prefs()); gRestore();
   if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
   loadEquipeGoogle();
-  await loadNomes(); loadPastasComp(); CT.loaded = false;
+  await loadNomes(); loadPastasComp(); CT.loaded = false; INF.loaded = false;
   S.perfis.sort((a,b) => (a.id===me.id ? -1 : b.id===me.id ? 1 : a.nome.localeCompare(b.nome)));
-  let sp = me.id; try { const s = sessionStorage.getItem("cu_space"); const ps = S.perfis.find(p => p.id === s);
+  const [hv, hs] = location.hash.slice(1).split("/");
+  let sp = me.id; try { const s = hs || sessionStorage.getItem("cu_space"); const ps = S.perfis.find(p => p.id === s);
     if (ps && (ps.papel !== "admin" || ps.id === me.id || await API.rpc("espaco_liberado", { p_alvo: s }).catch(() => false))) sp = s; } catch {}
   S.space = sp;
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
-  renderHeader(); aplicarModulos(); avIniciar();
-  const h = location.hash.slice(1);
-  setView(["agenda","kanban","notas","arquivos","contatos","parados","finalizadas","equipe"].includes(h) ? h : "agenda");
+  renderHeader(); aplicarModulos(); avIniciar(); gpIniciar();
+  try { sessionStorage.setItem("cu_space", sp); } catch {}
+  setView(["agenda","kanban","notas","arquivos","contatos","infos","parados","finalizadas","equipe"].includes(hv) ? hv : "agenda");
   await reloadSpace(true);
   resetIdle();
 }
@@ -135,10 +137,14 @@ function showLogin(msg){
 async function logout(){
   closeModal(true); clearTimeout(idleT); idleT = null;
   try { if (S.me && S.me.papel === "admin") await API.rpc("travar_espacos", {}); } catch {}
-  await API.logout();
+  S.me = null; await API.logout();
+  sairLocal();
+}
+function sairLocal(msg){
+  closeModal(true); clearTimeout(idleT); idleT = null; clearTimeout(GP.timer); GP.perm = false; GP.cfg = null; const gb = $("#gpBar"); if (gb) gb.remove();
   gClear(); S.me = null; S.demandas = []; S.eventos = []; S.all = null; S.perfis = [];
   try { sessionStorage.removeItem("cu_space"); } catch {}
-  showLogin();
+  showLogin(msg);
 }
 $("#loginForm").addEventListener("submit", async e => {
   e.preventDefault();
@@ -206,25 +212,41 @@ $("#meBtn").addEventListener("click", () => {
       <button class="btn" id="mePw">🔑 Trocar minha senha</button>
       <button class="btn" id="meAv">🔔 Avisos no celular e no computador</button>
       <button class="btn" id="meBk">💾 Backup / exportar dados</button>
+      <button class="btn" id="meGc">🔗 Conexão com o Google${GP.cfg && !GP.perm ? " ⚠️" : GP.perm ? " ✅" : ""}</button>
       <button class="btn" id="meOut">🚪 Sair</button>
-      <p class="note" style="margin:6px 0 0">Por segurança, o sistema sai sozinho após ${CFG.idleMin} minutos sem uso ou quando você fecha a aba.</p>
+      <label class="f" style="margin-top:6px">Sair sozinho depois de quanto tempo sem uso</label>
+      <select class="fld" id="meIdle">${[[30,"30 minutos"],[60,"1 hora"],[120,"2 horas"],[240,"4 horas"],[480,"8 horas"],[720,"12 horas"],[0,"Não sair (só quando eu clicar em Sair)"]].map(([v,l]) => `<option value="${v}" ${idleMin() === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <p class="note" style="margin:2px 0 0">Também sai quando todas as abas do sistema ficam fechadas por alguns minutos.</p>
     </div>`, "small");
   $("#mePw").onclick = () => { closeModal(true); passModal(S.me); };
   $("#meAp").onclick = () => { closeModal(true); openAparencia(); };
   $("#meAv").onclick = () => { closeModal(true); openAvisos(); };
   $("#meBk").onclick = () => { closeModal(true); openBackup(); };
+  $("#meGc").onclick = () => { closeModal(true); openGoogleConexao(); };
+  $("#meIdle").onchange = e => { const p = prefs(); p.idleMin = +e.target.value; savePrefs(p); marcaUso(); toast("Tempo de saída automática atualizado."); };
   $("#meOut").onclick = () => logout();
 });
 $$(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
 $("#spaceSel").addEventListener("change", e => setSpace(e.target.value));
 $("#search").addEventListener("input", e => { S.q = e.target.value; renderAll(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && modalOpen()) closeModal(); });
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (S.me && h !== S.view && ["agenda","kanban","notas","arquivos","contatos","parados","finalizadas","equipe"].includes(h)) setView(h); });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1).split("/")[0]; if (S.me && h !== S.view && ["agenda","kanban","notas","arquivos","contatos","infos","parados","finalizadas","equipe"].includes(h)) setView(h); });
 
 /* ---------- inatividade e atualização ---------- */
 let idleT = null;
-function resetIdle(){ clearTimeout(idleT); if (!S.me) return; idleT = setTimeout(() => { logout().then(() => { $("#lgErr").textContent = "Você saiu por inatividade."; }); }, CFG.idleMin*60000); }
-["click","keydown","pointermove","touchstart"].forEach(ev => document.addEventListener(ev, () => { if (idleT) resetIdle(); }, {passive:true}));
+const idleMin = () => { const v = prefs().idleMin; return v === 0 ? 0 : (+v || 240); };
+let usoLocal = Date.now();
+function marcaUso(){ usoLocal = Date.now(); try { const v = +localStorage.getItem("cu_act") || 0; if (usoLocal - v > 15000) localStorage.setItem("cu_act", usoLocal); } catch {} }
+function resetIdle(){ clearInterval(idleT); if (!S.me) return; marcaUso();
+  idleT = setInterval(() => {
+    if (!S.me) return;
+    try { localStorage.setItem("cu_alive", Date.now()); } catch {}
+    const m = idleMin(); if (!m) return;
+    let ult = usoLocal; try { ult = Math.max(ult, +localStorage.getItem("cu_act") || 0); } catch {}
+    if (Date.now() - ult > m * 60000) logout().then(() => { $("#lgErr").textContent = "Você saiu por inatividade."; });
+  }, 15000);
+  try { localStorage.setItem("cu_alive", Date.now()); } catch {} }
+["click","keydown","pointermove","touchstart","scroll"].forEach(ev => document.addEventListener(ev, () => { if (idleT) marcaUso(); }, {passive:true, capture:true}));
 setInterval(() => { if (S.me && !modalOpen() && !document.hidden && savingN === 0 && !K.inlineAdd) reloadSpace(false); }, 60000);
 window.addEventListener("focus", () => { if (S.me && !modalOpen() && savingN === 0 && !K.inlineAdd) reloadSpace(false); });
 
@@ -232,6 +254,9 @@ window.addEventListener("focus", () => { if (S.me && !modalOpen() && savingN ===
 (async function boot(){
   try {
     API.init();
+    // todas as abas ficaram fechadas por mais de 3 minutos: pede o login de novo
+    try { const v = +localStorage.getItem("cu_alive") || 0; if (v && Date.now() - v > 180000 && API.logoutLocal) await API.logoutLocal(); } catch {}
+    if (API.onSignedOut) API.onSignedOut(() => { if (S.me) sairLocal("Você saiu (em outra aba ou por inatividade)."); });
     const uid = await API.sessionUserId();
     if (uid) await startApp(uid); else showLogin();
   } catch(e){ console.error(e); showLogin("Não foi possível conectar: " + errMsg(e)); }
