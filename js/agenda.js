@@ -15,8 +15,9 @@ function occurrences(ev, from, to){
   const res = [];
   if (ev.recorrencia === "nenhuma" || !ev.recorrencia){
     const end = ev.tipo !== "missao" && ev.data_fim && ev.data_fim > ev.data ? ev.data_fim : ev.data;
-    let d = parseYmd(ev.data > from ? ev.data : from); const last = end < to ? end : to;
-    while (ymd(d) <= last){ res.push(ymd(d)); d = addDays(d, 1); }
+    if (!ev.data) return res;
+    let d = parseYmd(ev.data > from ? ev.data : from); const last = end < to ? end : to; if (isNaN(d)) return res;
+    let g = 0; while (ymd(d) <= last && ++g < 1500){ res.push(ymd(d)); d = addDays(d, 1); }
     return res;
   }
   if (ev.recorrencia === "datas"){
@@ -26,7 +27,9 @@ function occurrences(ev, from, to){
   const d0 = parseYmd(ev.data);
   const until = ev.recorrencia_ate && ev.recorrencia_ate < to ? ev.recorrencia_ate : to;
   let d = parseYmd(ev.data > from ? ev.data : from);
-  while (ymd(d) <= until){
+  if (isNaN(d) || isNaN(d0)) return res;
+  let guard = 0;
+  while (ymd(d) <= until && ++guard < 1500){
     const w = d.getDay();
     const ok = ev.recorrencia === "diaria" ? true
       : ev.recorrencia === "dias_uteis" ? (w >= 1 && w <= 5)

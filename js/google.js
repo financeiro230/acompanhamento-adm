@@ -96,6 +96,7 @@ function gParse(e){
     const end = e.end && e.end.date ? ymd(addDays(parseYmd(e.end.date), -1)) : e.start.date;
     return { allDay: true, date: e.start.date, last: end < e.start.date ? e.start.date : end };
   }
+  if (!e.start || !e.start.dateTime) return { allDay: true, date: "x", last: "x" };
   const s = new Date(e.start.dateTime), f = new Date((e.end && e.end.dateTime) || e.start.dateTime);
   const sm = s.getHours()*60 + s.getMinutes();
   let em = ymd(f) === ymd(s) ? f.getHours()*60 + f.getMinutes() : 1439; if (em <= sm) em = Math.min(sm + 30, 1439);
@@ -111,7 +112,8 @@ function gInstances(from, to){
     for (const e of t.events){
       if (mine.has(e.id)) continue;
       const g = gParse(e); let d = parseYmd(g.date > from ? g.date : from); const last = g.last < to ? g.last : to;
-      while (ymd(d) <= last){
+      let gd = 0; if (isNaN(d) || !/^\d{4}-/.test(g.date)) continue;
+      while (ymd(d) <= last && ++gd < 400){
         out.push({ key: `t|${encodeURIComponent(em)}~${e.id}|${ymd(d)}`, kind: "google", id: e.id, date: ymd(d), allDay: g.allDay, start: g.allDay ? null : g.start, end: g.allDay ? null : g.end,
           title: (isOwnSpace() ? initials(p.nome) + " · " : "") + (e.summary || (e.visibility === "private" || !e.summary ? "Ocupado" : "(sem título)")), color: p.cor, done: false, late: false, pend: false, local: e.location || "" });
         d = addDays(d, 1);
@@ -123,7 +125,8 @@ function gInstances(from, to){
     if (mine.has(e.id)) continue;
     const p = gParse(e); const pend = gPending(e), st = gStatus(e);
     let d = parseYmd(p.date > from ? p.date : from); const last = p.last < to ? p.last : to;
-    while (ymd(d) <= last){
+    let gd = 0; if (isNaN(d) || !/^\d{4}-/.test(p.date)) continue;
+    while (ymd(d) <= last && ++gd < 400){
       out.push({ key: `g|${e.id}|${ymd(d)}`, kind: "google", id: e.id, date: ymd(d), allDay: p.allDay, start: p.allDay ? null : p.start, end: p.allDay ? null : p.end,
         title: e.summary || "(sem título)", color: col, done: st === "declined", late: false, pend, local: e.location || "" });
       d = addDays(d, 1);

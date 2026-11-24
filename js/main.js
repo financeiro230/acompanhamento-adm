@@ -216,7 +216,7 @@ $("#meBtn").addEventListener("click", () => {
       <button class="btn" id="meOut">🚪 Sair</button>
       <label class="f" style="margin-top:6px">Sair sozinho depois de quanto tempo sem uso</label>
       <select class="fld" id="meIdle">${[[30,"30 minutos"],[60,"1 hora"],[120,"2 horas"],[240,"4 horas"],[480,"8 horas"],[720,"12 horas"],[0,"Não sair (só quando eu clicar em Sair)"]].map(([v,l]) => `<option value="${v}" ${idleMin() === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-      <p class="note" style="margin:2px 0 0">Também sai quando todas as abas do sistema ficam fechadas por alguns minutos.</p>
+      
     </div>`, "small");
   $("#mePw").onclick = () => { closeModal(true); passModal(S.me); };
   $("#meAp").onclick = () => { closeModal(true); openAparencia(); };
@@ -234,7 +234,7 @@ window.addEventListener("hashchange", () => { const h = location.hash.slice(1).s
 
 /* ---------- inatividade e atualização ---------- */
 let idleT = null;
-const idleMin = () => { const v = prefs().idleMin; return v === 0 ? 0 : (+v || 240); };
+const idleMin = () => { const v = prefs().idleMin, m = v === 0 ? 0 : (+v || 240); try { localStorage.setItem("cu_idlemin", m); } catch {} return m; };
 let usoLocal = Date.now();
 function marcaUso(){ usoLocal = Date.now(); try { const v = +localStorage.getItem("cu_act") || 0; if (usoLocal - v > 15000) localStorage.setItem("cu_act", usoLocal); } catch {} }
 function resetIdle(){ clearInterval(idleT); if (!S.me) return; marcaUso();
@@ -255,7 +255,9 @@ window.addEventListener("focus", () => { if (S.me && !modalOpen() && savingN ===
   try {
     API.init();
     // todas as abas ficaram fechadas por mais de 3 minutos: pede o login de novo
-    try { const v = +localStorage.getItem("cu_alive") || 0; if (v && Date.now() - v > 180000 && API.logoutLocal) await API.logoutLocal(); } catch {}
+    // ficou sem uso (em todas as abas) por mais tempo que o limite escolhido: pede o login de novo
+    try { const v = +localStorage.getItem("cu_act") || 0, lim = +(localStorage.getItem("cu_idlemin") || 240);
+      if (v && lim > 0 && Date.now() - v > lim * 60000 && API.logoutLocal) await API.logoutLocal(); } catch {}
     if (API.onSignedOut) API.onSignedOut(() => { if (S.me) sairLocal("Você saiu (em outra aba ou por inatividade)."); });
     const uid = await API.sessionUserId();
     if (uid) await startApp(uid); else showLogin();
