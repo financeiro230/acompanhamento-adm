@@ -87,7 +87,7 @@ function instances(from, to){
   if (isOwnSpace()) for (const pa of (S.meusPassos || [])){
     const dt = pa.prazo || pa.data_ref; if (!dt || dt < from || dt > to || pa.feito) continue;
     out.push({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${dt}`, kind:"passo", id:pa.ref_id, date:dt, allDay:true, start:null, end:null,
-      title:"🎯 " + pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, color: prefs().corCompart || defColor("missao"), done:false, late: dt < today });
+      title:pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, atrib:true, de:pa.dono_nome, ref:pa.titulo, color:"#7c3aed", done:false, late: dt < today });
   }
   out.push(...gInstances(from, to));
   return out.sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
@@ -101,7 +101,7 @@ function lateList(){
   const passos = A.filt.prazo ? S.demandas.filter(d => d.status !== FIN).flatMap(d => (d.checklist||[]).filter(c => !c.feito && c.prazo && c.prazo < today)
     .map(c => ({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, title:c.texto, sub:d.titulo, color:defColor("prazo"), late:true }))) : [];
   if (isOwnSpace()) passos.push(...(S.meusPassos || []).filter(pa => !pa.feito && (pa.prazo || pa.data_ref) && (pa.prazo || pa.data_ref) < today)
-    .map(pa => ({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${pa.prazo || pa.data_ref}`, kind:"passo", id:pa.ref_id, date:pa.prazo || pa.data_ref, allDay:true, title:"🎯 " + pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, color:defColor("missao"), late:true })));
+    .map(pa => ({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${pa.prazo || pa.data_ref}`, kind:"passo", id:pa.ref_id, date:pa.prazo || pa.data_ref, allDay:true, title:pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, atrib:true, de:pa.dono_nome, ref:pa.titulo, color:"#7c3aed", late:true })));
   const vistos = new Set();
   return [...late, ...(A.filt.prazo ? prazos : []), ...passos]
     .filter(i => { const k = `${i.kind}|${i.id}|${i.date}|${i.title}`; if (vistos.has(k)) return false; vistos.add(k); return true; })
@@ -251,6 +251,7 @@ function chipHtml(i){
   const tip = `${i.title}${i.allDay ? "" : " · " + minToHm(i.start)}`;
   const cls = ["chip", i.done ? "done" : "", i.late ? "late" : ""];
   if (i.kind === "google") return `<button class="chip ${i.done?"done":""} ${i.allDay?"solid":""}" data-inst="${i.key}" style="${i.allDay?`background:${i.color}`:"color:var(--ink)"};${i.pend?`outline:1.5px dashed ${i.color};outline-offset:-1.5px;`:""}" title="Google Agenda: ${esc(tip)}${i.pend?" (convite sem resposta)":""}">${i.allDay?"":`<span class="dot" style="background:${i.color}"></span><span class="hr">${minToHm(i.start)}</span>`}<span class="t">${i.pend?"✉ ":""}${esc(i.title)}</span></button>`;
+  if (i.atrib) return `<button class="chip atrib ${i.late?"late":""}" data-inst="${i.key}" title="Passo atribuído a você por ${esc(i.de)}: ${esc(i.title)} — em “${esc(i.ref)}”"><span class="atg">👤 PASSO</span><span class="t">${esc(i.title)}</span></button>`;
   if (i.kind === "passo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Passo do checklist: ${esc(i.title)} — ${esc(i.sub)}"><span class="t">☑ ${esc(i.title)}</span></button>`;
   if (i.kind === "prazo") return `<button class="chip prazo ${i.late?"late":""}" data-inst="${i.key}" title="Prazo do kanban: ${esc(i.title)}"><span class="t">📌 ${esc(i.title)}</span></button>`;
   if (i.kind === "limite") return `<button class="chip ${i.late?"late":""}" data-inst="${i.key}" style="color:${i.color};background:${i.color}1f;border:1px dashed ${i.color}" title="Prazo final da missão: ${esc(i.title)}"><span class="t">⏰ Prazo: ${esc(i.title)}</span></button>`;
@@ -331,6 +332,8 @@ function listHtml(){
   const row = i => {
     const tm = i.allDay ? (i.kind==="prazo" || i.kind==="limite" || i.kind==="passo" ? "Prazo" : "Dia todo") : `${minToHm(i.start)}${i.end ? "–"+minToHm(Math.min(i.end,1439)) : ""}`;
     const sub = [i.kind==="missao"?"Missão":i.kind==="prazo"?"Prazo do kanban":i.kind==="limite"?"Prazo final da missão":i.kind==="passo"?`Passo do checklist · ${i.sub}`:i.kind==="google"?(i.pend?"Google Agenda · convite sem resposta":"Google Agenda"):"Evento", i.prazo?`prazo final ${fmtYmd(i.prazo)}`:"", i.rec?"↻ repete":"", i.local||""].filter(Boolean).join(" · ");
+    if (i.atrib) return `<div class="agl-it atrib" data-inst="${i.key}"><span class="bar"></span><span class="atg">👤 PASSO</span>
+      <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>Atribuído a você por <b>${esc(i.de)}</b> · em “${esc(i.ref)}”</small></span></div>`;
     return `<div class="agl-it ${i.done?"done":""}" data-inst="${i.key}"><span class="bar" style="background:${i.color}"></span>
       ${i.kind==="missao"||i.kind==="evento" ? `<span class="cbx ${i.done?"on":""}" data-done="${i.key}">${i.done?"✓":""}</span>` : `<span style="width:20px;text-align:center">${i.kind==="prazo"?"📌":i.kind==="passo"?"☑":i.kind==="limite"?"⏰":i.kind==="google"?(i.pend?"✉":"🟦"):"📅"}</span>`}
       <span class="tm">${tm}</span><span class="ti">${esc(i.title)}<small>${esc(sub)}</small></span></div>`;

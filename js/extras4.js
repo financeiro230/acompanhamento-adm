@@ -341,3 +341,76 @@ function relHtml(o){
     ${o.evs.length ? `<h2>🎯 Missões da agenda</h2>${o.sec.includes("pend") ? tabE("Pendentes", evPend) : ""}${o.sec.includes("fin") ? tabE("Concluídas no período", evFin) : ""}${o.sec.includes("novo") ? tabE("Criadas no período", evNovo) : ""}` : ""}
     <footer>Acompanhamento ADM — relatório gerado automaticamente</footer></body></html>`;
 }
+
+/* ===== atualização 15: rolagem lateral (direita/esquerda) também no computador =====
+   Setas ‹ › aparecem sobre qualquer faixa que não cabe na tela (abas do topo, colunas do kanban,
+   finalizadas…). Também: roda do mouse rola as abas para o lado e dá para "arrastar" o quadro do kanban. */
+const HS = { itens: new Map() };
+function hsAlvos(){
+  return [...document.querySelectorAll("header .tabs, .board:not(.mob), .hscroll")].filter(e => e.offsetParent !== null);
+}
+function hsSetas(el){
+  let o = HS.itens.get(el);
+  if (o) return o;
+  const mk = (lado, txt) => { const b = document.createElement("button"); b.type = "button"; b.className = "hsarr " + lado; b.textContent = txt;
+    b.title = lado === "l" ? "Rolar para a esquerda" : "Rolar para a direita";
+    b.addEventListener("click", e => { e.stopPropagation(); const passo = Math.max(160, el.clientWidth * 0.7);
+      el.scrollBy({ left: lado === "l" ? -passo : passo, behavior: "smooth" }); });
+    document.body.appendChild(b); return b; };
+  o = { l: mk("l", "‹"), r: mk("r", "›") };
+  HS.itens.set(el, o);
+  el.addEventListener("scroll", hsAgendar, { passive: true });
+  if (el.matches("header .tabs")) el.addEventListener("wheel", e => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth){ el.scrollLeft += e.deltaY; e.preventDefault(); }
+  }, { passive: false });
+  if (el.matches(".board")) hsArrastar(el);
+  return o;
+}
+function hsArrastar(el){
+  let ini = null;
+  el.addEventListener("mousedown", e => {
+    if (e.button !== 0 || el.scrollWidth <= el.clientWidth + 2) return;
+    if (e.target.closest(".card,button,input,textarea,select,a,label,[draggable=true],[contenteditable]")) return;
+    ini = { x: e.clientX, s: el.scrollLeft, mov: false };
+  });
+  window.addEventListener("mousemove", e => {
+    if (!ini) return; const dx = e.clientX - ini.x;
+    if (!ini.mov && Math.abs(dx) < 6) return;
+    ini.mov = true; el.classList.add("hs-grab"); el.scrollLeft = ini.s - dx;
+  });
+  window.addEventListener("mouseup", () => { if (ini){ el.classList.remove("hs-grab"); ini = null; } });
+}
+function hsAtualizar(){
+  HS.raf = 0;
+  for (const [el, o] of HS.itens){
+    if (!el.isConnected || el.offsetParent === null){ o.l.classList.remove("on"); o.r.classList.remove("on");
+      if (!el.isConnected){ o.l.remove(); o.r.remove(); HS.itens.delete(el); } continue; }
+    const r = el.getBoundingClientRect(), vh = window.innerHeight;
+    const top = Math.max(r.top, el.matches("header .tabs") ? r.top : 60), bot = Math.min(r.bottom, vh);
+    const sobra = el.scrollWidth - el.clientWidth;
+    const visivel = bot - top > 24 && !document.querySelector("#modalRoot .overlay");
+    const cy = el.matches("header .tabs") ? r.top + r.height / 2 : top + (bot - top) / 2;
+    const tam = el.matches("header .tabs") ? 26 : 34;
+    for (const [b, lado] of [[o.l, "l"], [o.r, "r"]]){
+      const mostra = visivel && sobra > 4 && (lado === "l" ? el.scrollLeft > 4 : el.scrollLeft < sobra - 4);
+      b.classList.toggle("on", mostra);
+      if (!mostra) continue;
+      b.style.position = "fixed"; b.style.zIndex = el.matches("header .tabs") ? 25 : 15; b.style.width = b.style.height = tam + "px";
+      b.style.top = cy + "px"; b.style.left = lado === "l" ? (r.left + 2) + "px" : (r.right - tam - 2) + "px"; b.style.right = "auto";
+    }
+  }
+}
+function hsAgendar(){ if (!HS.raf) HS.raf = requestAnimationFrame(hsAtualizar); }
+function hsVarrer(){
+  hsAlvos().forEach(hsSetas);
+  const tabs = document.querySelector("header .tabs"), on = tabs && tabs.querySelector(".tab.on");
+  if (on && on !== HS.ultimaAba){ HS.ultimaAba = on;
+    const r = on.getBoundingClientRect(), t = tabs.getBoundingClientRect();
+    if (r.left < t.left || r.right > t.right) tabs.scrollLeft += (r.left - t.left) - (t.width - r.width) / 2; }
+  hsAgendar();
+}
+document.addEventListener("DOMContentLoaded", () => {
+  window.addEventListener("resize", hsAgendar); window.addEventListener("scroll", hsAgendar, true);
+  new MutationObserver(() => { clearTimeout(HS.mt); HS.mt = setTimeout(hsVarrer, 120); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  setTimeout(hsVarrer, 500);
+});
