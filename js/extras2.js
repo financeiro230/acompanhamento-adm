@@ -99,7 +99,7 @@ document.addEventListener("click", e => {
   if (ed){
     const id = ed.dataset.pkid, em = +ed.dataset.pkne, it = getD(id); const n = it && it.historico.find(h => h.tipo === "nota" && h.em === em); if (!n) return;
     const row = ed.closest(".lastupd");
-    row.outerHTML = `<div class="pkedit"><textarea class="fld" rows="3">${esc(n.texto)}</textarea><div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm primary" data-pkns="${em}" data-pkid="${id}">Salvar</button><button class="btn sm ghost" data-pknc="${id}">Cancelar</button></div></div>`;
+    row.outerHTML = `<div class="pkedit"><textarea class="fld" rows="5">${esc(n.texto)}</textarea><div style="display:flex;gap:6px;margin-top:6px"><button class="btn sm primary" data-pkns="${em}" data-pkid="${id}">Salvar</button><button class="btn sm ghost" data-pknc="${id}">Cancelar</button></div></div>`;
     return;
   }
   const sv = e.target.closest && e.target.closest("[data-pkns]");

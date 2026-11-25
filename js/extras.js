@@ -198,7 +198,7 @@ document.addEventListener("change", async e => {
 function evUpdHtml(id){
   const ev = getE(id), notes = ((ev && ev.historico) || []).filter(h => h.tipo === "nota").sort((a, z) => z.em - a.em);
   return `<div class="evupd" data-eupdbox="${id}" data-nodirty>
-    <div class="upd"><input class="fld" data-eupdin placeholder="Registrar andamento… (Enter)"><button type="button" class="btn sm primary" data-eupd>Registrar</button></div>
+    <div class="upd big"><textarea class="fld" data-eupdin rows="3" placeholder="Registrar andamento… escreva com detalhes (Ctrl+Enter para registrar)"></textarea><button type="button" class="btn sm primary" data-eupd>Registrar atualização</button></div>
     ${notes.length ? `<ul class="timeline" style="margin-top:8px">${notes.map(n => `<li class="nota"><div class="tl-when">${fmt(n.em)}${n.por ? " · " + esc(n.por) : ""}${n.editadoEm ? ` <span class="note">(editada)</span>` : ""}<span class="nacts updacts"><button type="button" data-eupe="${n.em}" title="Editar">✏️</button><button type="button" data-eupx="${n.em}" title="Excluir">🗑</button></span></div><div class="tl-what">${esc(n.texto)}</div></li>`).join("")}</ul>`
       : `<p class="note" style="margin:6px 0 0">Nenhuma atualização ainda.</p>`}</div>`;
 }
@@ -217,7 +217,7 @@ async function addNoteE(id, texto){
 }
 function eupdSubmit(box){ const inp = box.querySelector("[data-eupdin]"); const v = inp.value.trim(); if (!v) return; inp.value = ""; addNoteE(box.dataset.eupdbox, v); }
 document.addEventListener("click", e => { const b = e.target.closest("[data-eupd]"); if (b) eupdSubmit(b.closest("[data-eupdbox]")); });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches && e.target.matches("[data-eupdin]")){ e.preventDefault(); eupdSubmit(e.target.closest("[data-eupdbox]")); } });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.matches && e.target.matches("[data-eupdin]")){ e.preventDefault(); eupdSubmit(e.target.closest("[data-eupdbox]")); } });
 
 /* ===================== NOTAS (estilo Google Keep) ===================== */
 const NOTE_CORES = [null, "#f28b82", "#fbbc04", "#fff475", "#ccff90", "#a7ffeb", "#cbf0f8", "#aecbfa", "#d7aefb", "#fdcfe8", "#e6c9a8", "#e8eaed"];

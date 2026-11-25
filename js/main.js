@@ -100,7 +100,7 @@ async function startApp(uid){
   const me = ps.find(p => p.id === uid);
   if (!me){ await API.logout(); showLogin("Seu usuário não tem perfil cadastrado. Fale com o administrador."); return; }
   if (!me.ativo){ await API.logout(); showLogin("Este usuário está desativado."); return; }
-  S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id);
+  S.me = me; S.perfis = ps.filter(p => me.papel === "admin" || p.id === me.id || (Array.isArray(me.ve) && me.ve.includes(p.id) && p.papel !== "admin"));
   S.notas = []; N.loaded = false; N.q = ""; N.lab = ""; N.arq = false; INF.pasta = null; A.filt.concl = undefined;
   applyTheme(prefs()); gRestore();
   if (me.papel === "admin" || me.pode_atribuir){ try { S.equipe = await API.rpc("equipe_basica"); } catch { S.equipe = []; } }
@@ -112,7 +112,7 @@ async function startApp(uid){
     if (ps && (ps.papel !== "admin" || ps.id === me.id || await API.rpc("espaco_liberado", { p_alvo: s }).catch(() => false))) sp = s; } catch {}
   S.space = sp;
   $("#login").classList.add("hidden"); $("#boot").classList.add("hidden"); $("#app").classList.remove("hidden");
-  renderHeader(); aplicarModulos(); avIniciar(); gpIniciar();
+  renderHeader(); aplicarModulos(); avIniciar(); gpIniciar(); iniciar14();
   try { sessionStorage.setItem("cu_space", sp); } catch {}
   setView(["agenda","kanban","notas","arquivos","contatos","infos","parados","finalizadas","equipe"].includes(hv) ? hv : "agenda");
   await reloadSpace(true);
@@ -141,6 +141,7 @@ async function logout(){
   sairLocal();
 }
 function sairLocal(msg){
+  try { if (RT.parar){ RT.parar(); RT.parar = null; } chatToggle(false); NT.lista = []; CH.recentes = []; notifBadge(); chatBadge(); } catch {}
   closeModal(true); clearTimeout(idleT); idleT = null; clearTimeout(GP.timer); GP.perm = false; GP.cfg = null; const gb = $("#gpBar"); if (gb) gb.remove();
   gClear(); S.me = null; S.demandas = []; S.eventos = []; S.all = null; S.perfis = [];
   try { sessionStorage.removeItem("cu_space"); } catch {}
@@ -169,6 +170,9 @@ async function savePrefs(p){
   const mine = S.perfis.find(x => x.id === S.me.id); if (mine && mine !== S.me) mine.preferencias = p;
   try { await API.rpc("salvar_preferencias", { p }); } catch(e){ console.error(e); toast("Não foi possível salvar suas preferências: " + errMsg(e), true); }
 }
+const AP_PAL = ["#2f5bea","#7c5cff","#0ea5a4","#1f9d61","#e0457b","#ea7a1a","#d23b3b","#334155","#4285f4","#f59e0b","#0891b2","#8b5cf6"];
+const apLinha = (id, k, l, v) => `<div class="colorline appal"><input type="color" id="${id}" value="${v}"><span class="apl">${l}</span><span class="appals">${AP_PAL.map(c => `<button type="button" class="apsw ${c.toLowerCase() === String(v).toLowerCase() ? "on" : ""}" data-appal="${id}|${k}" data-c="${c}" style="background:${c}" title="${c}"></button>`).join("")}</span></div>`;
+const apMarca = (id, v) => $$(`[data-appal^="${id}|"]`).forEach(b => b.classList.toggle("on", b.dataset.c.toLowerCase() === String(v).toLowerCase()));
 function openAparencia(){
   const orig = prefs(); const p = { ...orig };
   const ACS = ["#2f5bea","#7c5cff","#0ea5a4","#1f9d61","#e0457b","#ea7a1a","#d23b3b","#334155"];
@@ -180,11 +184,10 @@ function openAparencia(){
         <div class="swatches" id="apAc">${ACS.map(c => `<span class="sw ${c===p.cor?"on":""}" data-ac="${c}" style="background:${c}"></span>`).join("")}
           <label class="sw" title="Outra cor" style="background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);position:relative;overflow:hidden"><input type="color" id="apAcPick" value="${p.cor}" style="opacity:0;position:absolute;inset:0;cursor:pointer"></label></div></div>
       <div class="section"><label class="f">Cores padrão da agenda</label>
-        <div class="colorline"><input type="color" id="apEv" value="${p.corEvento}"> Eventos</div>
-        <div class="colorline"><input type="color" id="apMi" value="${p.corMissao}"> Missões</div>
-        <div class="colorline"><input type="color" id="apPr" value="${p.corPrazo}"> Prazos do kanban</div>
-        <div class="colorline"><input type="color" id="apGo" value="${p.corGoogle||"#4285f4"}"> Eventos do Google Agenda</div>
-        <p class="note" style="margin:4px 0 0">Compromissos com "cor padrão" mudam junto quando você troca aqui. Os que têm cor própria continuam com a cor escolhida.</p></div>
+        ${[["apEv","corEvento","Eventos"],["apMi","corMissao","Missões"],["apPr","corPrazo","Prazos do kanban"],["apGo","corGoogle","Eventos do Google Agenda"]].map(([id,k,l]) => apLinha(id, k, l, p[k] || (k === "corGoogle" ? "#4285f4" : "#2f5bea"))).join("")}
+        <div class="colorline apopt"><label class="chk" style="margin:0"><input type="checkbox" id="apCsOn" ${p.corCompart ? "checked" : ""}> Compromissos compartilhados com outras pessoas em uma cor só</label></div>
+        <div id="apCsBox" ${p.corCompart ? "" : "hidden"}>${apLinha("apCs", "corCompart", "Compartilhados", p.corCompart || "#e0457b")}</div>
+        <p class="note" style="margin:4px 0 0">Clique numa bolinha para usar uma das cores de destaque, ou no quadrado para escolher outra. Compromissos com "cor padrão" mudam junto; os que têm cor própria continuam com a cor escolhida.</p></div>
       <div class="section"><label class="chk"><input type="checkbox" id="apSide" ${p.sidebar!==false?"checked":""}> Mostrar o menu lateral da agenda</label></div>
       <p class="note" style="margin-top:14px">Suas preferências ficam salvas na sua conta e valem em qualquer computador.</p>
     </div>
@@ -196,7 +199,9 @@ function openAparencia(){
     const a = e.target.closest("[data-ac]"); if (a){ p.cor = a.dataset.ac; $$("#apAc .sw").forEach(x => x.classList.toggle("on", x === a)); live(); }
   });
   $("#apAcPick").oninput = e => { p.cor = e.target.value; $$("#apAc .sw").forEach(x => x.classList.toggle("on", x === e.target.parentElement)); live(); };
-  [["#apEv","corEvento"],["#apMi","corMissao"],["#apPr","corPrazo"],["#apGo","corGoogle"]].forEach(([sel,k]) => $(sel).oninput = e => { p[k] = e.target.value; live(); });
+  [["#apEv","corEvento"],["#apMi","corMissao"],["#apPr","corPrazo"],["#apGo","corGoogle"],["#apCs","corCompart"]].forEach(([sel,k]) => $(sel).oninput = e => { p[k] = e.target.value; apMarca(sel.slice(1), p[k]); live(); });
+  ov.addEventListener("click", e => { const b = e.target.closest("[data-appal]"); if (!b) return; const [id, k] = b.dataset.appal.split("|"); p[k] = b.dataset.c; $("#" + id).value = b.dataset.c; apMarca(id, p[k]); live(); });
+  $("#apCsOn").onchange = e => { $("#apCsBox").hidden = !e.target.checked; p.corCompart = e.target.checked ? ($("#apCs").value || "#e0457b") : null; live(); };
   $("#apSide").onchange = e => { p.sidebar = e.target.checked; };
   $("#apReset").onclick = () => { Object.assign(p, PREF_DEF); closeModal(true); saved = true; savePrefs({...p}); renderAll(); toast("Aparência restaurada."); };
   $("#apCancel").onclick = () => closeModal(true);
@@ -211,6 +216,7 @@ $("#meBtn").addEventListener("click", () => {
       <button class="btn" id="meAp">🎨 Aparência (tema e cores)</button>
       <button class="btn" id="mePw">🔑 Trocar minha senha</button>
       <button class="btn" id="meAv">🔔 Notificações no celular e no computador${typeof PU !== "undefined" && PU.ativo ? " ✅" : ""}</button>
+      <button class="btn" id="meRel">📄 Relatório em PDF</button>
       <button class="btn" id="meBk">💾 Backup / exportar dados</button>
       <button class="btn" id="meGc">🔗 Conexão com o Google${GP.cfg && !GP.perm ? " ⚠️" : GP.perm ? " ✅" : ""}</button>
       <button class="btn" id="meOut">🚪 Sair</button>
@@ -222,6 +228,7 @@ $("#meBtn").addEventListener("click", () => {
   $("#meAp").onclick = () => { closeModal(true); openAparencia(); };
   $("#meAv").onclick = () => { closeModal(true); openAvisos(); };
   $("#meBk").onclick = () => { closeModal(true); openBackup(); };
+  $("#meRel").onclick = () => { closeModal(true); openRelatorio(); };
   $("#meGc").onclick = () => { closeModal(true); openGoogleConexao(); };
   $("#meIdle").onchange = e => { const p = prefs(); p.idleMin = +e.target.value; savePrefs(p); marcaUso(); toast("Tempo de saída automática atualizado."); };
   $("#meOut").onclick = () => logout();

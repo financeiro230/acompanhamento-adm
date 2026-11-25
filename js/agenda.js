@@ -60,11 +60,11 @@ function instances(from, to){
       const late = ev.tipo === "missao" && !done && (prazoMissao ? prazoMissao < today
         : (date < today || (date === today && !allDay && (end ?? 0) < nowMin)));
       out.push({ key:`e|${ev.id}|${date}`, kind:ev.tipo, id:ev.id, date, allDay, start, end, title:(ev.pessoal ? "🔒 " : "") + (ev.prioridade === "alta" ? "▲ " : "") + ev.titulo, prio: ev.prioridade || null,
-        color: ev.cor || defColor(ev.tipo), done, late, rec: ev.recorrencia !== "nenhuma", local: ev.local, prazo: prazoMissao });
+        color: (ev.grupo && prefs().corCompart) || ev.cor || defColor(ev.tipo), done, late, compart: !!ev.grupo, rec: ev.recorrencia !== "nenhuma", local: ev.local, prazo: prazoMissao });
     }
     if (prazoMissao && A.filt.missao && prazoMissao >= from && prazoMissao <= to && !ev.concluida){
       out.push({ key:`e|${ev.id}|${ev.data}`, kind:"limite", id:ev.id, date:prazoMissao, allDay:true, start:null, end:null,
-        title:ev.titulo, color: ev.cor || defColor("missao"), done:false, late: prazoMissao < today });
+        title:ev.titulo, color: (ev.grupo && prefs().corCompart) || ev.cor || defColor("missao"), done:false, late: prazoMissao < today });
     }
   }
   if (A.filt.prazo){
@@ -84,6 +84,11 @@ function instances(from, to){
       }
     }
   }
+  if (isOwnSpace()) for (const pa of (S.meusPassos || [])){
+    const dt = pa.prazo || pa.data_ref; if (!dt || dt < from || dt > to || pa.feito) continue;
+    out.push({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${dt}`, kind:"passo", id:pa.ref_id, date:dt, allDay:true, start:null, end:null,
+      title:"🎯 " + pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, color: prefs().corCompart || defColor("missao"), done:false, late: dt < today });
+  }
   out.push(...gInstances(from, to));
   return out.sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
 }
@@ -95,6 +100,8 @@ function lateList(){
     .map(d => ({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, title:d.titulo, color:defColor("prazo"), late:true }));
   const passos = A.filt.prazo ? S.demandas.filter(d => d.status !== FIN).flatMap(d => (d.checklist||[]).filter(c => !c.feito && c.prazo && c.prazo < today)
     .map(c => ({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, title:c.texto, sub:d.titulo, color:defColor("prazo"), late:true }))) : [];
+  if (isOwnSpace()) passos.push(...(S.meusPassos || []).filter(pa => !pa.feito && (pa.prazo || pa.data_ref) && (pa.prazo || pa.data_ref) < today)
+    .map(pa => ({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${pa.prazo || pa.data_ref}`, kind:"passo", id:pa.ref_id, date:pa.prazo || pa.data_ref, allDay:true, title:"🎯 " + pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, color:defColor("missao"), late:true })));
   const vistos = new Set();
   return [...late, ...(A.filt.prazo ? prazos : []), ...passos]
     .filter(i => { const k = `${i.kind}|${i.id}|${i.date}|${i.title}`; if (vistos.has(k)) return false; vistos.add(k); return true; })
@@ -352,7 +359,7 @@ document.addEventListener("click", e => {
   const dn = t.closest("[data-done]");
   if (dn){ e.stopPropagation(); const [, id, date] = dn.dataset.done.split("|"); toggleDone(id, date); return; }
   const inst = t.closest("[data-inst]");
-  if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else if (k === "t") gOpenEvent(id.split("~")[1], date, decodeURIComponent(id.split("~")[0])); else openEventoPeek(id, date); return; }
+  if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "pa"){ openPassoA(id); return; } if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else if (k === "t") gOpenEvent(id.split("~")[1], date, decodeURIComponent(id.split("~")[0])); else openEventoPeek(id, date); return; }
   const go = t.closest("[data-goto]");
   if (go){ A.sideOpen = false; A.mobList = false; A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
   const md = t.closest("[data-mode]"); if (md){ A.mode = md.dataset.mode; renderAgenda(); return; }
@@ -437,7 +444,7 @@ function loadParticipants(ev, ctx, sel){
   API.rpc("grupo_participantes", { g: ev.grupo }).then(list => { const el = $(sel); if (el && list && list.length) el.innerHTML = `<label class="f" style="margin-top:8px">Compartilhada com ${list.length} pessoa(s)${ev.conclusao_conjunta ? " · conclusão em conjunto" : " · cada um conclui a sua"}</label>` + participantsHtml(list, ctx); }).catch(() => {});
 }
 function evChecklistHtml(cl){
-  return `<ul class="cklist">${(cl||[]).map(c => `<li class="${c.feito?"done":""}"><input type="checkbox" data-eck="${c.id}" ${c.feito?"checked":""}><input class="ckt" data-ekt="${c.id}" value="${esc(c.texto)}"><button type="button" class="ckb del" data-ekdel="${c.id}" title="Remover">×</button></li>`).join("")}</ul>
+  return `<ul class="cklist">${(cl||[]).map(c => `<li class="${c.feito?"done":""}"><input type="checkbox" data-eck="${c.id}" ${c.feito?"checked":""}><input class="ckt" data-ekt="${c.id}" value="${esc(c.texto)}"><label class="ckdl" title="Prazo do passo">⏰<input type="date" data-ekpz="${c.id}" value="${esc(c.prazo||"")}"></label>${respBtn(c, "data-ekresp")}<button type="button" class="ckb del" data-ekdel="${c.id}" title="Remover">×</button>${respPainel(c, "data-ekr")}</li>`).join("")}</ul>
     <div class="upd" style="margin-top:6px"><input class="fld" id="eckNew" placeholder="Adicionar passo… (Enter)"><button type="button" class="btn sm" data-eckadd style="white-space:nowrap">＋ Passo</button></div>`;
 }
 async function deleteEvento(ev){
@@ -625,10 +632,14 @@ function openEvento(id, pre = {}, dateCtx = null){
     const rm = t.closest("[data-rmd]"); if (rm){ recDatas = recDatas.filter(x => x !== rm.dataset.rmd); $("#evRdList").innerHTML = datasHtml(); dirty = true; return; }
     if (t.closest("[data-eckadd]")){ addCk(); return; }
     const ck = t.closest("[data-eck]"); if (ck){ const c = d.checklist.find(x => x.id === ck.dataset.eck); c.feito = ck.checked; c.feitoEm = ck.checked ? Date.now() : null; dirty = true; drawCk(); return; }
+    const erb = t.closest("[data-ekresp]"); if (erb){ RESP.aberto = RESP.aberto === erb.dataset.ekresp ? null : erb.dataset.ekresp; drawCk(); return; }
+    const err = t.closest("[data-ekr]"); if (err){ const [cid, uid] = err.dataset.ekr.split("|"); const c = d.checklist.find(x => x.id === cid); if (c){ const r = new Set(c.resp || []); err.checked ? r.add(uid) : r.delete(uid); c.resp = [...r]; dirty = true; } drawCk(); return; }
+    const ekd = t.closest(".ckdl"); if (ekd && t.tagName !== "INPUT"){ try { ekd.querySelector("input").showPicker(); } catch {} return; }
     const kd = t.closest("[data-ekdel]"); if (kd){ d.checklist = d.checklist.filter(x => x.id !== kd.dataset.ekdel); dirty = true; drawCk(); return; }
   });
   ov.addEventListener("keydown", e => { if (e.target.id === "eckNew" && e.key === "Enter"){ e.preventDefault(); addCk(); } if (e.target.id === "evRdNew" && e.key === "Enter"){ e.preventDefault(); $("#evRdAdd").click(); } });
   ov.addEventListener("change", e => {
+    const pz = e.target.dataset && e.target.dataset.ekpz; if (pz !== undefined){ const c = d.checklist.find(x => x.id === pz); if (c){ c.prazo = e.target.value || null; dirty = true; } return; }
     const k = e.target.dataset && e.target.dataset.ekt; if (k !== undefined){ const c = d.checklist.find(x => x.id === k); if (c && e.target.value.trim()) c.texto = e.target.value.trim(); }
     if (e.target.closest("#evWho")) syncShared();
   });
@@ -697,8 +708,8 @@ function openEvento(id, pre = {}, dateCtx = null){
       const row = Object.assign(ev ? clone(getE(ev.id) || ev) : { id: uuid(), criado_em: now, criado_por: S.me.id, concluida:false, concluida_em:null, concluidas:[], historico:[], meet_link:null, google_id:null }, base, { dono, grupo });
       if (!ev && !grupo) row.conclusao_conjunta = false;
       row.historico = row.historico || [];
-      const h = ev ? {tipo:"edicao", em:now, texto:"Editado"} : {tipo:"criado", em:now, texto: tipo==="missao" ? "Missão criada" : "Evento criado"};
-      if (S.me.id !== dono) h.por = S.me.nome;
+      const h = ev ? {tipo:"edicao", em:now, texto: difEvento(ev, base), por: S.me.nome} : {tipo:"criado", em:now, texto: tipo==="missao" ? "Missão criada" : "Evento criado"};
+      h.por = S.me.nome;
       if (!ev && donos.length > 1) h.texto += ` (compartilhada com ${donos.length} pessoas)`;
       row.historico.push(h);
       return row;
@@ -723,7 +734,7 @@ function openEvento(id, pre = {}, dateCtx = null){
     await Promise.all(rows.map(r => persist("eventos", r)));
     if (ev && ev.grupo){
       const c = { titulo, descricao: base.descricao, tipo, data, data_fim: base.data_fim, hora_inicio: hi, hora_fim: hf, local: base.local, recorrencia: recV, recorrencia_ate: ra,
-        rec_dias: base.rec_dias, rec_datas: base.rec_datas, checklist: base.checklist, prioridade: base.prioridade || "", meet_link: rows[0].meet_link, google_id: rows[0].google_id, nota: "Editado" };
+        rec_dias: base.rec_dias, rec_datas: base.rec_datas, checklist: base.checklist, prioridade: base.prioridade || "", meet_link: rows[0].meet_link, google_id: rows[0].google_id, nota: difEvento(ev, base) };
       if ("conclusao_conjunta" in base) c.conclusao_conjunta = base.conclusao_conjunta;
       await API.rpc("grupo_sync", { g: ev.grupo, c }).catch(e => toast("Não foi possível atualizar para todos: " + errMsg(e), true));
     }

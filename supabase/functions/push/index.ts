@@ -106,26 +106,38 @@ async function varrer(admin: ReturnType<typeof adminClient>, cfg: any) {
     const antes = Number(p.preferencias?.avisosMin ?? 15) || 15;
     // compromissos chegando
     for (const ev of (evs || []).filter((e) => e.dono === p.id)) {
-      if (ev.criado_por && ev.criado_por !== p.id && Number(ev.criado_em) > recente)
-        await avisar(p.id, "atribE|" + ev.id, { titulo: `📅 Novo ${ev.tipo === "missao" ? "missão" : "compromisso"} para você`, corpo: `${nomes[ev.criado_por] ?? "Alguém"} colocou "${ev.titulo}" na sua agenda (${ev.data.split("-").reverse().join("/")}${ev.hora_inicio ? " às " + hm(ev.hora_inicio) : ""}).`, tag: "atribE|" + ev.id, url: SITE + "#agenda" });
       if (!ev.hora_inicio || !ocorreEm(ev, hoje) || feito(ev, hoje)) continue;
       const [h, m] = ev.hora_inicio.split(":").map(Number), falta = h * 60 + m - agoraMin;
       if (falta <= antes && falta >= -1)
         await avisar(p.id, `e|${ev.id}|${hoje}|${hm(ev.hora_inicio)}`, { titulo: `${ev.tipo === "missao" ? "🎯" : "📅"} ${ev.titulo}`, corpo: falta > 0 ? `Começa em ${falta} min (${hm(ev.hora_inicio)})${ev.local ? " · " + ev.local : ""}` : `Começando agora (${hm(ev.hora_inicio)})${ev.local ? " · " + ev.local : ""}`, tag: `e|${ev.id}|${hoje}`, url: SITE + "#agenda" });
     }
     const minhas = (dems || []).filter((d) => d.dono === p.id || (d.participantes || []).includes(p.id));
-    // demandas novas: atribuídas ou compartilhadas
-    for (const d of minhas) {
-      if (d.dono === p.id && d.criado_por && d.criado_por !== p.id && Number(d.criado_em) > recente)
-        await avisar(p.id, "atrib|" + d.id, { titulo: "📋 Nova demanda para você", corpo: `${nomes[d.criado_por] ?? "Alguém"}: ${d.titulo}`, tag: "atrib|" + d.id, url: SITE + "#kanban" });
-      if (d.dono !== p.id && Number(d.atualizado_em) > recente)
-        await avisar(p.id, "share|" + d.id, { titulo: "👥 Demanda compartilhada com você", corpo: `${nomes[d.dono] ?? "Alguém"}: ${d.titulo}`, tag: "share|" + d.id, url: SITE + "#kanban" });
-    }
     // prazos do dia (a partir das 8h)
     if (agoraMin >= 8 * 60) {
       const pr = minhas.filter((d) => d.prazo === hoje).map((d) => "• " + d.titulo);
       const ps = minhas.flatMap((d) => (d.checklist || []).filter((c: any) => !c.feito && c.prazo === hoje).map((c: any) => "☑ " + c.texto));
       if (pr.length || ps.length) await avisar(p.id, "d|" + hoje, { titulo: `📌 Prazos de hoje (${pr.length + ps.length})`, corpo: [...pr, ...ps].slice(0, 6).join("\n"), tag: "d|" + hoje, url: SITE + "#kanban" });
+    }
+  }
+  // central de atualizações (missões, demandas e passos para você, compartilhamentos, atualizações)
+  const { data: nts } = await admin.from("notificacoes").select("id,para,titulo,corpo,ref_tipo").is("push_em", null)
+    .gt("criado_em", new Date(Date.now() - 30 * 60000).toISOString()).in("para", ids).limit(200);
+  for (const n of nts ?? []) {
+    for (const s of await enfileirar(admin, n.para, { titulo: n.titulo, corpo: n.corpo ?? "", tag: "n" + n.id, url: SITE + (n.ref_tipo === "evento" ? "#agenda" : "#kanban") }, subs)) tocadas.set(s.id, s);
+  }
+  if (nts && nts.length) await admin.from("notificacoes").update({ push_em: new Date().toISOString() }).in("id", nts.map((n) => n.id));
+  // chat: mensagens novas ainda não lidas
+  const { data: msgs } = await admin.from("chat_mensagens").select("id,conversa,de,para,texto,criado_em").gt("criado_em", new Date(Date.now() - 3 * 60000).toISOString()).limit(100);
+  if (msgs && msgs.length) {
+    const { data: lidos } = await admin.from("chat_lidos").select("dono,conversa,ate").in("dono", ids);
+    for (const m of msgs) {
+      const alvos = m.para ? [m.para] : ids.filter((x) => x !== m.de);
+      for (const a of alvos) {
+        if (!ids.includes(a)) continue;
+        const l = (lidos ?? []).find((x) => x.dono === a && x.conversa === m.conversa);
+        if (l && l.ate >= m.criado_em) continue;
+        await avisar(a, "chat|" + m.id, { titulo: `💬 ${nomes[m.de] ?? "Mensagem"}${m.para ? "" : " · Equipe"}`, corpo: String(m.texto).slice(0, 180), tag: "chat|" + m.conversa, url: SITE });
+      }
     }
   }
   const res: string[] = [];

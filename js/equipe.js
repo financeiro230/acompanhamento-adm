@@ -87,7 +87,7 @@ function memberModal(p){
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" id="mbOk">${novo?"Criar acesso":"Salvar"}</button></div>
     </form>`, "mid");
   $("#mbN").focus();
-  const syncAc = () => { const adm = $("#mbR").value === "admin"; const b = $("#acVe"); if (b) b.hidden = !adm;
+  const syncAc = () => { const adm = $("#mbR").value === "admin"; const b = $("#acVe"); if (b) b.hidden = !adm; const bm = $("#acVeM"); if (bm) bm.hidden = adm;
     const so = $("#acSo"); if (so) $("#acVeList").hidden = !so.checked; };
   $("#mbR").addEventListener("change", syncAc); ov.addEventListener("change", e => { if (e.target.name === "acmodo") syncAc(); }); syncAc();
   if (novo) $("#mbN").addEventListener("input", () => {
@@ -172,6 +172,11 @@ function acessoHtml(p){
       <label class="chk"><input type="radio" name="acmodo" value="so" id="acSo" ${ve && ve.length ? "checked" : ""}> Só o espaço destas pessoas:</label>
       <div id="acVeList" class="acl" ${ve && ve.length ? "" : "hidden"}>${others.length ? others.map(x => `<label class="chk"><input type="checkbox" data-acve="${x.id}" ${ve && ve.includes(x.id) ? "checked" : ""}> ${esc(x.nome)}${x.papel === "admin" ? ` <span class="note">(admin)</span>` : ""}</label>`).join("") : `<span class="note">Ainda não há outras pessoas.</span>`}</div>`}
     </div>
+    <div id="acVeM" ${p && p.papel === "admin" ? "hidden" : ""}>
+      <label class="f">👁 Espaços que ${p ? esc(p.nome) : "este membro"} pode ver (só visualizar)</label>
+      <div class="acl">${others.filter(x => x.papel !== "admin").map(x => `<label class="chk"><input type="checkbox" data-acvm="${x.id}" ${p && p.papel !== "admin" && Array.isArray(p.ve) && p.ve.includes(x.id) ? "checked" : ""}> ${esc(x.nome)}</label>`).join("") || `<span class="note">Ainda não há outros membros.</span>`}</div>
+      <p class="note" style="margin:4px 0 0">O membro escolhe o espaço no seletor ao lado da busca e vê agenda e kanban da pessoa, sem poder alterar. Espaços de administradores não aparecem para membros.</p>
+    </div>
     <label class="f" style="margin-top:10px">🔒 Quem pode ver o espaço ${p ? "de " + esc(p.nome) : "desta pessoa"}</label>
     ${admins.length ? `<div class="acl">${admins.map(x => `<label class="chk"><input type="checkbox" data-acoc="${x.id}" ${oc.includes(x.id) ? "" : "checked"} ${x.id === S.me.id && !self ? "disabled title=\"Você sempre vê os espaços que administra\"" : ""}> ${esc(x.nome)}${x.id === S.me.id ? " (você)" : ""}</label>`).join("")}</div>
       <p class="note" style="margin:4px 0 0">Desmarque um administrador para que ele não veja a agenda nem o kanban desta pessoa, mesmo sendo administrador. O espaço de um administrador, para os outros (inclusive você), só abre digitando a senha dele.</p>`
@@ -186,6 +191,7 @@ async function salvarAcesso(id, p, papel){
     ve = $$("[data-acve]").filter(c => c.checked).map(c => c.dataset.acve);
     if (!ve.length) throw new Error("Marque pelo menos uma pessoa que este administrador pode ver (ou escolha \"O espaço de todos\").");
   }
+  if (papel !== "admin"){ const vm = $$("[data-acvm]").filter(c => c.checked).map(c => c.dataset.acvm); ve = vm.length ? vm : null; }
   const oc = $$("[data-acoc]").filter(c => !c.checked && !c.disabled).map(c => c.dataset.acoc);
   const same = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...(b || [])].sort());
   if (p && (p.ve == null) === (ve == null) && same(p.ve, ve) && same(p.ocultar_de, oc)) return;

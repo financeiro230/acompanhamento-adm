@@ -32,6 +32,7 @@ function applySpaceCols(){
 }
 const colLabel = k => LABEL[k] || "Quadro removido";
 /* listas vindas do banco sempre como lista (evita "object is not iterable" com dados antigos ou corrompidos) */
+const RTS = { estado: null };
 const LISTAS = { eventos: ["concluidas","rec_dias","rec_datas","checklist","historico","anexos"], demandas: ["checklist","historico","anexos","participantes"],
   notas: ["itens","marcadores","membros"], contatos: ["marcadores","membros"], info_pastas: ["membros"], pastas_compartilhadas: ["membros"] };
 function normLista(v){ return Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []; }
@@ -107,6 +108,20 @@ const API = window.API_MOCK || {
     }
     const { error } = await sb.from(table).upsert(row); if (error) throw error; },
   async del(table, id){ const { error } = await sb.from(table).delete().eq("id", id); if (error) throw error; },
+  async notifs(uid){ const { data, error } = await sb.from("notificacoes").select("*").eq("para", uid).order("criado_em", { ascending: false }).limit(150); if (error) throw error; return data || []; },
+  async notifLer(id){ const { error } = await sb.from("notificacoes").update({ lida_em: new Date().toISOString() }).eq("id", id); if (error) throw error; },
+  async chatRecentes(){ const { data, error } = await sb.from("chat_mensagens").select("*").order("criado_em", { ascending: false }).limit(600); if (error) throw error; return data || []; },
+  async chatConversa(conv){ const { data, error } = await sb.from("chat_mensagens").select("*").eq("conversa", conv).order("criado_em", { ascending: false }).limit(300); if (error) throw error; return (data || []).reverse(); },
+  async chatEnviar(row){ const { data, error } = await sb.from("chat_mensagens").insert(row).select().single(); if (error) throw error; return data; },
+  async chatApagar(id){ const { error } = await sb.from("chat_mensagens").delete().eq("id", id); if (error) throw error; },
+  async chatLidos(){ const { data, error } = await sb.from("chat_lidos").select("*"); if (error) throw error; return data || []; },
+  async chatMarcar(uid, conv){ const { error } = await sb.from("chat_lidos").upsert({ dono: uid, conversa: conv, ate: new Date().toISOString() }); if (error) throw error; },
+  canal(nome, tabelas, cb){
+    const ch = sb.channel(nome);
+    for (const t of tabelas) ch.on("postgres_changes", Object.assign({ event: "*", schema: "public", table: t.table }, t.filter ? { filter: t.filter } : {}), p => cb(t.table, p));
+    ch.subscribe(st => { RTS.estado = st; });
+    return () => { try { sb.removeChannel(ch); } catch {} };
+  },
   async listMembro(table, uid){ const { data, error } = await sb.from(table).select("*").contains("membros", [uid]).neq("dono", uid); if (error) throw error; return normRows(table, data || []); },
   async saveMany(table, rows){ for (let i = 0; i < rows.length; i += 200){ const { error } = await sb.from(table).upsert(rows.slice(i, i + 200)); if (error) throw error; } },
   async listShared(uid){ const { data, error } = await sb.from("demandas").select("*").contains("participantes", [uid]).neq("dono", uid); if (error) throw error; return normRows("demandas", data || []); },
@@ -178,7 +193,7 @@ async function remove(table, id){
   finally { savingN--; setSaving(); }
 }
 function actorTag(entry){
-  if (S.me && S.space && S.me.id !== S.space) entry.por = S.me.nome;
+  if (S.me) entry.por = S.me.nome;   // sempre registra quem fez (importante em demandas compartilhadas)
   return entry;
 }
 

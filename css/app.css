@@ -801,3 +801,64 @@ li:hover>.tl-when .updacts,.pkupd:hover .updacts{opacity:1}
 .pushst{padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--ink) 6%,transparent);font-size:14px}
 .pushst.on{background:color-mix(in srgb,#16a34a 14%,transparent)}
 .pushlist{margin:0 0 6px;padding-left:18px;line-height:1.7}
+/* ===== atualização 14 ===== */
+.upd.big{flex-direction:column;align-items:stretch;gap:6px}
+.upd.big textarea{min-height:96px;resize:vertical;line-height:1.5;font-size:14px}
+.upd.big .btn{align-self:flex-end}
+.timeline li.nota .tl-what.clamp{-webkit-line-clamp:12}
+.timeline li.nota .tl-what{font-size:13.5px;line-height:1.55}
+#neT{min-height:110px;resize:vertical}
+.cklist li{flex-wrap:wrap}
+.ckresp{display:inline-flex;gap:1px;align-items:center}
+.ckresp .mini-av{width:18px;height:18px;font-size:8.5px;margin:0}
+.ckresp.on{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.resppan{flex-basis:100%;margin:4px 0 6px 26px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+/* botões do topo */
+.hbtn{position:relative;border:0;background:transparent;font-size:19px;cursor:pointer;padding:4px 6px;border-radius:8px;flex-shrink:0}
+.hbtn:hover{background:var(--sel)}
+.hbadge{position:absolute;top:-2px;right:-3px;background:#e53935;color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;line-height:16px;padding:0 4px;border-radius:999px;text-align:center;font-style:normal}
+.hbadge.st{position:static;margin-left:auto}
+/* atualizações */
+.ntbody{max-height:70vh;overflow:auto}
+.ntit{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:none;padding:9px 8px;border-radius:10px;cursor:pointer;font:inherit;color:var(--ink);position:relative}
+.ntit:hover{background:var(--sel)}
+.ntit.nova{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.ntic{font-size:18px;line-height:1.2}
+.ntx{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.ntc{font-size:13px;color:var(--ink);opacity:.85;white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ntdot{width:9px;height:9px;border-radius:50%;background:var(--accent);margin-top:6px;flex-shrink:0}
+/* chat */
+.chatpan{position:fixed;top:0;right:0;bottom:0;width:min(760px,100vw);z-index:1500;background:var(--panel);border-left:1px solid var(--line);box-shadow:-8px 0 30px rgba(20,25,40,.18);display:flex;flex-direction:column}
+.chhead{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);font-size:15px}
+.chhead .x{border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted)}
+.chwrap{flex:1;display:grid;grid-template-columns:250px 1fr;min-height:0}
+.chlist{border-right:1px solid var(--line);overflow:auto;padding:6px}
+.chc{display:flex;gap:8px;align-items:center;width:100%;border:0;background:none;padding:7px 8px;border-radius:10px;cursor:pointer;font:inherit;color:var(--ink);text-align:left}
+.chc:hover{background:var(--sel)}.chc.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.chc .avatar{width:32px;height:32px;flex:0 0 32px;font-size:12px;cursor:inherit}
+.chcx{display:flex;flex-direction:column;min-width:0;flex:1}.chcx .note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.chconv{display:flex;flex-direction:column;min-height:0}
+.chtop{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px}
+.chback{display:none}
+.chmsgs{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.chdia{align-self:center;font-size:11px;color:var(--muted);background:var(--panel);padding:2px 10px;border-radius:999px;margin:6px 0}
+.chm{max-width:78%;align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:12px 12px 12px 4px;padding:6px 10px}
+.chm.eu{align-self:flex-end;background:color-mix(in srgb,var(--accent) 14%,var(--panel));border-color:transparent;border-radius:12px 12px 4px 12px}
+.chq{font-size:11.5px;font-weight:700;margin-bottom:1px}
+.cht{white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.45}
+.chh{font-size:10.5px;color:var(--muted);text-align:right;margin-top:2px}
+.chdel{border:0;background:none;cursor:pointer;font-size:11px;opacity:0;padding:0}.chm:hover .chdel{opacity:.7}
+.chsend{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+.chsend textarea{flex:1;resize:none;min-height:40px;max-height:140px}
+@media (max-width:700px){.chwrap{grid-template-columns:1fr}.chwrap .chconv{display:none}.chwrap.mob .chlist{display:none}.chwrap.mob .chconv{display:flex}.chback{display:inline-flex}}
+.rlrap{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.appal{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.appal .apl{min-width:150px}
+.appals{display:flex;gap:4px;flex-wrap:wrap}
+.apsw{width:20px;height:20px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.apsw.on{border-color:var(--ink)}
+.kbar{flex-wrap:wrap;row-gap:8px}
+.kbar .note{white-space:normal}
+html,body{max-width:100%;overflow-x:hidden}
+.modal{max-width:calc(100vw - 16px)}
+#v-parados .kbar{display:flex;flex-wrap:wrap}

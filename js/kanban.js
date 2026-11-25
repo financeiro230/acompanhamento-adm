@@ -59,7 +59,7 @@ function editD(id, changes){
   if (!changed.length) return;
   return updateD(id, it => {
     changed.forEach(k => it[k] = changes[k] || (k==="prazo" ? null : ""));
-    it.historico.push(actorTag({tipo:"edicao", em:Date.now(), texto:"Editado: " + changed.map(k=>names[k]).join(", ")}));
+    it.historico.push(actorTag({tipo:"edicao", em:Date.now(), texto:"Alterou " + changed.map(k => difCampo(k, names[k], cur[k], changes[k])).join("; ")}));
   });
 }
 async function deleteD(id){
@@ -350,7 +350,7 @@ function timelineHtml(it){
     const editado = x.editadoEm ? ` · <i>editada em ${fmt(x.editadoEm)}</i>` : "";
     if (x.tipo==="nota" && K.editingNote===x.em){
       return `<li class="nota"><div class="tl-when">${fmt(x.em)} · Atualização</div>
-        <textarea class="fld" id="neT" style="margin-top:4px">${esc(x.texto)}</textarea>
+        <textarea class="fld" id="neT" rows="5" style="margin-top:4px">${esc(x.texto)}</textarea>
         <div style="display:flex;gap:6px;margin-top:6px"><button class="btn primary sm" data-nsave="${x.em}">Salvar</button><button class="btn ghost sm" data-ncancel>Cancelar</button></div></li>`;
     }
     const acts = x.tipo==="nota" ? ` <span class="nacts"><button class="lnk" data-nedit="${x.em}">editar</button> · <button class="lnk del" data-ndel="${x.em}">excluir</button></span>` : "";
@@ -365,9 +365,10 @@ function checklistHtml(it){
       <input type="checkbox" data-ck="${c.id}" ${c.feito?"checked":""}>
       <input class="ckt" data-ckt="${c.id}" value="${esc(c.texto)}" title="${c.feitoEm?"Concluído em "+fmt(c.feitoEm):"Clique para editar"}">
       ${c.feitoEm?`<span class="ckwhen">${fmtD(c.feitoEm)}</span>`:`<label class="ckdl ${c.prazo && c.prazo < todayYmd() ? "late" : ""}" title="Prazo do passo (aparece na agenda)">⏰<input type="date" data-ckd="${c.id}" value="${esc(c.prazo||"")}"></label>`}
+      ${respBtn(c, "data-ckresp")}
       <button class="ckb" data-ckmv="${c.id}|-1" title="Subir" ${i===0?"disabled":""}>↑</button>
       <button class="ckb" data-ckmv="${c.id}|1" title="Descer" ${i===cl.length-1?"disabled":""}>↓</button>
-      <button class="ckb del" data-ckdel="${c.id}" title="Remover passo">×</button></li>`).join("")}</ul>
+      <button class="ckb del" data-ckdel="${c.id}" title="Remover passo">×</button>${respPainel(c, "data-ckr")}</li>`).join("")}</ul>
     <div class="upd" style="margin-top:6px"><input class="fld" id="ckNew" placeholder="Adicionar passo… (Enter)"><button class="btn sm" data-ckadd style="white-space:nowrap">＋ Passo</button></div>`;
 }
 function footHtml(it){
@@ -398,7 +399,7 @@ function openDemanda(id){
     <div class="section"><h3>📎 Anexos</h3>${anexosHtml("d", it.id)}</div>
     ${compartDHtml(it)}
     <div class="section"><h3>💬 Nova atualização / andamento</h3>
-      <div class="upd"><textarea class="fld" id="dN" placeholder="O que aconteceu? (Ctrl+Enter para registrar)"></textarea><button class="btn primary" id="dNok">Registrar</button></div></div>
+      <div class="upd big"><textarea class="fld" id="dN" rows="4" placeholder="O que aconteceu? Escreva com detalhes, como uma observação. (Ctrl+Enter para registrar)"></textarea><button class="btn primary" id="dNok">Registrar atualização</button></div></div>
     <div class="section"><h3>🕓 Histórico</h3><ul class="timeline" id="tl">${timelineHtml(it)}</ul></div>
   </div>
   <div class="mfoot" id="mfoot">${footHtml(it)}</div>`, "", {
@@ -409,7 +410,7 @@ function openDemanda(id){
   const cur = () => getD(K.openId);
   const tl = () => { const t = $("#tl"); if (t && cur()) t.innerHTML = timelineHtml(cur()); };
   const ck = (f) => { const c = $("#ck"); if (c && cur()){ c.innerHTML = checklistHtml(cur()); if (f) $("#ckNew").focus(); } };
-  const ckAdd = () => { const v = $("#ckNew").value.trim(); if (!v) return; updateD(K.openId, it => { it.checklist.push({id:uuid(), texto:v, feito:false, em:Date.now(), feitoEm:null}); }); ck(true); };
+  const ckAdd = () => { const v = $("#ckNew").value.trim(); if (!v) return; updateD(K.openId, it => { it.checklist.push({id:uuid(), texto:v, feito:false, em:Date.now(), feitoEm:null}); it.historico.push(actorTag({tipo:"check", em:Date.now(), texto:`Passo adicionado: ${v}`})); }); ck(true); tl(); };
 
   ov.addEventListener("click", e => {
     const t = e.target;
@@ -422,7 +423,12 @@ function openDemanda(id){
       updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); c.feito = feito; c.feitoEm = feito ? Date.now() : null;
         it.historico.push(actorTag({tipo:"check", em:Date.now(), texto:(feito?"Passo concluído: ":"Passo reaberto: ")+item.texto})); });
       ck(); tl(); return; }
-    const c2 = t.closest("[data-ckdel]"); if (c2){ const cid = c2.dataset.ckdel; updateD(K.openId, it => { it.checklist = it.checklist.filter(x=>x.id!==cid); }); ck(); return; }
+    const rb = t.closest("[data-ckresp]"); if (rb){ RESP.aberto = RESP.aberto === rb.dataset.ckresp ? null : rb.dataset.ckresp; ck(); return; }
+    const rr = t.closest("[data-ckr]"); if (rr){ const [cid, uid] = rr.dataset.ckr.split("|"); const marcar = rr.checked;
+      updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); if (!c) return false; const r = new Set(c.resp || []); marcar ? r.add(uid) : r.delete(uid); c.resp = [...r];
+        it.historico.push(actorTag({tipo:"check", em:Date.now(), texto: marcar ? `Passo "${c.texto}" atribuído a ${nomeDe(uid)}` : `${nomeDe(uid)} saiu do passo "${c.texto}"`})); });
+      ck(); tl(); return; }
+    const c2 = t.closest("[data-ckdel]"); if (c2){ const cid = c2.dataset.ckdel; updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); it.checklist = it.checklist.filter(x=>x.id!==cid); if (c) it.historico.push(actorTag({tipo:"check", em:Date.now(), texto:`Passo excluído: ${c.texto}`})); }); ck(); tl(); return; }
     const c3 = t.closest("[data-ckmv]"); if (c3){ const [cid,dir] = c3.dataset.ckmv.split("|"); updateD(K.openId, it => { const cl = it.checklist, i = cl.findIndex(x=>x.id===cid), j = i+(+dir); if (i<0||j<0||j>=cl.length) return false; [cl[i],cl[j]] = [cl[j],cl[i]]; }); ck(); return; }
     const ne = t.closest("[data-nedit]"); if (ne){ K.editingNote = +ne.dataset.nedit; tl(); const x = $("#neT"); x.focus(); x.setSelectionRange(x.value.length, x.value.length); return; }
     if (t.closest("[data-ncancel]")){ K.editingNote = null; tl(); return; }
@@ -461,7 +467,7 @@ function openDemanda(id){
       ck(); tl(); toast(v ? "Prazo do passo definido — já aparece na agenda." : "Prazo do passo removido."); return; }
     const cid = e.target.dataset && e.target.dataset.ckt; if (cid===undefined) return;
     const v = e.target.value.trim(); if (!v){ ck(); return; }
-    updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); if (!c || c.texto===v) return false; c.texto = v; });
+    updateD(K.openId, it => { const c = it.checklist.find(x=>x.id===cid); if (!c || c.texto===v) return false; it.historico.push(actorTag({tipo:"check", em:Date.now(), texto:`Passo renomeado: "${c.texto}" → "${v}"`})); c.texto = v; });
   });
   $("#dCor").addEventListener("input", () => { K.dirty = true; $("#dSave").classList.remove("hidden"); });
   ["#dT","#dD","#dP","#dR"].forEach(s => $(s).addEventListener("input", () => { K.dirty = true; $("#dSave").classList.remove("hidden"); }));
@@ -631,7 +637,7 @@ function openDemandaPeek(id){
       ${cl.length ? `<div class="section" style="margin-top:6px"><h3>✅ Checklist · ${cl.length - pend.length}/${cl.length}${cl.length > pend.length ? ` <button type="button" class="lnk cktog" data-cktog="${it.id}" style="font-weight:400">${ckOculto() ? `👁 Mostrar concluídos (${cl.length - pend.length})` : "🙈 Ocultar concluídos"}</button>` : ""}</h3>
         ${cl.filter(x => !(ckOculto() && x.feito)).map(x => `<label class="chk" style="display:flex;margin:4px 0"><input type="checkbox" data-pkck="${x.id}" ${x.feito?"checked":""}> <span style="${x.feito?"text-decoration:line-through;color:var(--muted)":""}">${esc(x.texto)}</span>${x.prazo && !x.feito ? `<span class="tag ${x.prazo < todayYmd() ? "late" : ""}" style="margin-left:auto">⏰ ${fmtYmd(x.prazo)}</span>` : ""}</label>`).join("")}</div>` : ""}
       <div class="section"><h3>💬 Últimas atualizações</h3>
-        ${notes.length ? notes.map(n => `<div class="lastupd pkupd" style="border-top:0;padding-top:0;-webkit-line-clamp:3"><span class="nacts updacts"><button type="button" data-pkne="${n.em}" data-pkid="${it.id}" title="Editar">✏️</button><button type="button" data-pknx="${n.em}" data-pkid="${it.id}" title="Excluir">🗑</button></span><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}${n.editadoEm ? " (editada)" : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
+        ${notes.length ? notes.map(n => `<div class="lastupd pkupd" style="border-top:0;padding-top:0;-webkit-line-clamp:8;white-space:pre-wrap"><span class="nacts updacts"><button type="button" data-pkne="${n.em}" data-pkid="${it.id}" title="Editar">✏️</button><button type="button" data-pknx="${n.em}" data-pkid="${it.id}" title="Excluir">🗑</button></span><b>${fmtD(n.em)}${n.por ? " · " + esc(n.por) : ""}${n.editadoEm ? " (editada)" : ""}:</b> ${esc(n.texto)}</div>`).join("") : `<p class="note" style="margin:0">Nenhuma atualização ainda.</p>`}
         <div class="upd" style="margin-top:8px"><input class="fld" id="pkNote" placeholder="Registrar andamento rápido… (Enter)"><button class="btn sm primary" data-pk="note">Registrar</button></div></div>
       <div class="section"><h3>📎 Anexos</h3>${anexosHtml("d", it.id)}</div>
       <div class="dates"><div><b>Cadastro</b>${fmt(it.criado_em)}</div><div><b>Última modificação</b>${fmt(it.atualizado_em)}</div>${it.finalizado_em ? `<div><b>Finalização</b>${fmt(it.finalizado_em)}</div>` : ""}</div>
