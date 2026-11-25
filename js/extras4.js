@@ -82,7 +82,7 @@ function passoCard(o){
   if (ok) ok.onclick = async () => { ok.disabled = true;
     try { await o.marcar(!o.feito); toast(!o.feito ? "Passo concluído." : "Passo reaberto."); closeModal(true); renderAll(); }
     catch(ex){ toast(errMsg(ex), true); ok.disabled = false; } };
-  const ab = $("#pcAbrir"); if (ab) ab.onclick = () => { closeModal(true); o.abrir(); };
+  const ab = $("#pcAbrir"); if (ab) ab.onclick = e => { e.preventDefault(); e.stopPropagation(); closeModal(true); setTimeout(() => o.abrir(), 60); };
 }
 function openPassoA(chave){
   const [origem, ref, pid] = chave.split("~");
