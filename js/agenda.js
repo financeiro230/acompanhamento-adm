@@ -78,8 +78,8 @@ function instances(from, to){
     for (const d of S.demandas){
       if (d.status === FIN) continue;
       for (const c of (d.checklist || [])){
-        if (c.feito || !c.prazo || c.prazo < from || c.prazo > to) continue;
-        out.push({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, start:null, end:null,
+        if (c.feito || !c.prazo || c.prazo < from || c.prazo > to || paDup(d.id, c.id)) continue;
+        out.push({ key:(c.resp && c.resp.length ? `po|${d.id}~${c.id}|` : `d|${d.id}|`) + c.prazo, kind:"passo", id:d.id, date:c.prazo, allDay:true, start:null, end:null,
           title:c.texto, sub:d.titulo, para:respNomes(c.resp), ref:d.titulo, color:defColor("prazo"), done:false, late: c.prazo < today });
       }
     }
@@ -98,8 +98,8 @@ function lateList(){
   const late = instances(from, today).filter(i => i.late && i.kind !== "prazo" && i.kind !== "limite" && !(i.prazo && seen.has(i.id)) && (seen.add(i.id), true));
   const prazos = S.demandas.filter(d => d.prazo && d.status !== FIN && d.prazo < today)
     .map(d => ({ key:`d|${d.id}|${d.prazo}`, kind:"prazo", id:d.id, date:d.prazo, allDay:true, title:d.titulo, color:defColor("prazo"), late:true }));
-  const passos = A.filt.prazo ? S.demandas.filter(d => d.status !== FIN).flatMap(d => (d.checklist||[]).filter(c => !c.feito && c.prazo && c.prazo < today)
-    .map(c => ({ key:`d|${d.id}|${c.prazo}`, kind:"passo", id:d.id, date:c.prazo, allDay:true, title:c.texto, sub:d.titulo, para:respNomes(c.resp), ref:d.titulo, color:defColor("prazo"), late:true }))) : [];
+  const passos = A.filt.prazo ? S.demandas.filter(d => d.status !== FIN).flatMap(d => (d.checklist||[]).filter(c => !c.feito && c.prazo && c.prazo < today && !paDup(d.id, c.id))
+    .map(c => ({ key:(c.resp && c.resp.length ? `po|${d.id}~${c.id}|` : `d|${d.id}|`) + c.prazo, kind:"passo", id:d.id, date:c.prazo, allDay:true, title:c.texto, sub:d.titulo, para:respNomes(c.resp), ref:d.titulo, color:defColor("prazo"), late:true }))) : [];
   passos.push(...(S.meusPassos || []).filter(pa => !pa.feito && (pa.prazo || pa.data_ref) && (pa.prazo || pa.data_ref) < today)
     .map(pa => ({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${pa.prazo || pa.data_ref}`, kind:"passo", id:pa.ref_id, date:pa.prazo || pa.data_ref, allDay:true, title:pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, atrib:true, de:pa.dono_nome, ref:pa.titulo, color:"#7c3aed", late:true })));
   const vistos = new Set();
@@ -247,6 +247,8 @@ function renderSide(){
     <p class="note">Dica: arraste a agenda para o lado para trocar de dia, ou toque num horário vazio para criar um compromisso ali.</p>` : `<p class="note">Dica: clique num horário vazio para criar um compromisso ali.</p>`}`;
 }
 
+// passo que já aparece como "atribuído" (S.meusPassos) não se repete como passo da demanda compartilhada
+function paDup(did, cid){ return (S.meusPassos || []).some(pa => pa.origem === "demanda" && pa.ref_id === did && pa.passo_id === cid); }
 function respNomes(r){
   if (!Array.isArray(r) || !r.length) return "";
   return r.map(id => { const p = (S.perfis || []).find(x => x.id === id) || ((S.equipe || []).find ? (S.equipe || []).find(x => x.id === id) : null); return p ? String(p.nome).split(" ")[0] : "membro"; }).join(", ");
@@ -369,7 +371,7 @@ document.addEventListener("click", e => {
   const dn = t.closest("[data-done]");
   if (dn){ e.stopPropagation(); const [, id, date] = dn.dataset.done.split("|"); toggleDone(id, date); return; }
   const inst = t.closest("[data-inst]");
-  if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "pa"){ openPassoA(id); return; } if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else if (k === "t") gOpenEvent(id.split("~")[1], date, decodeURIComponent(id.split("~")[0])); else openEventoPeek(id, date); return; }
+  if (inst){ e.stopPropagation(); const [k, id, date] = inst.dataset.inst.split("|"); if (k === "pa"){ openPassoA(id); return; } if (k === "po"){ openPassoDono(id); return; } if (k === "d") openDemandaFromAgenda(id); else if (k === "g") gOpenEvent(id, date); else if (k === "t") gOpenEvent(id.split("~")[1], date, decodeURIComponent(id.split("~")[0])); else openEventoPeek(id, date); return; }
   const go = t.closest("[data-goto]");
   if (go){ A.sideOpen = false; A.mobList = false; A.cursor = parseYmd(go.dataset.goto); if (go.dataset.modeTo) A.mode = go.dataset.modeTo; else if (A.mode === "lista") A.mode = "dia"; renderAgenda(); return; }
   const md = t.closest("[data-mode]"); if (md){ A.mode = md.dataset.mode; renderAgenda(); return; }

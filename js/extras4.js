@@ -61,23 +61,47 @@ async function loadMeusPassos(){
   try { S.meusPassos = alvo ? await API.rpc("passos_de", { p_alvo: alvo }) : await API.rpc("meus_passos", {}); }
   catch { S.meusPassos = alvo ? [] : (S.meusPassos || []); }
 }
+function passoCard(o){
+  const dt = o.prazo ? fmtYmd(o.prazo, { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+  const atras = o.prazo && !o.feito && o.prazo < todayYmd();
+  overlay(`<div class="mhead"><div class="mt">👤 Passo atribuído</div><button class="x" data-close>×</button></div>
+    <div class="mbody pcard">
+      <div class="pc-lbl">O que precisa ser feito</div>
+      <div class="pc-txt ${o.feito ? "ok" : ""}">${esc(o.texto)}</div>
+      <div class="pc-meta">
+        <span>👤 <b>${esc(o.para || "—")}</b></span>
+        ${dt ? `<span class="${atras ? "late" : ""}">⏰ ${dt}${atras ? " · atrasado" : ""}</span>` : ""}
+        <span>${o.feito ? "✅ Concluído" + (o.feitoPor ? " por " + esc(o.feitoPor) : "") : "⏳ Pendente"}</span>
+      </div>
+      <div class="pc-orig">${o.origem === "evento" ? "Compromisso" : "Demanda"}: <b>${esc(o.titulo)}</b>${o.de ? ` · atribuído por <b>${esc(o.de)}</b>` : ""}</div>
+      ${o.podeMarcar ? `<button class="btn ${o.feito ? "" : "primary"} pc-btn" id="pcOk">${o.feito ? "↩ Reabrir passo" : "✓ Marcar como concluído"}</button>`
+        : `<p class="note" style="margin:12px 0 0">Só quem recebeu o passo (ou o dono da demanda) pode marcar como concluído.</p>`}
+      <div class="pc-acts">${o.abrir ? `<button class="btn ghost sm" id="pcAbrir">Abrir ${o.origem === "evento" ? "compromisso" : "demanda"} completa</button>` : "<span></span>"}<button class="btn sm" data-close>Fechar</button></div>
+    </div>`, "small");
+  const ok = $("#pcOk");
+  if (ok) ok.onclick = async () => { ok.disabled = true;
+    try { await o.marcar(!o.feito); toast(!o.feito ? "Passo concluído." : "Passo reaberto."); closeModal(true); renderAll(); }
+    catch(ex){ toast(errMsg(ex), true); ok.disabled = false; } };
+  const ab = $("#pcAbrir"); if (ab) ab.onclick = () => { closeModal(true); o.abrir(); };
+}
 function openPassoA(chave){
   const [origem, ref, pid] = chave.split("~");
   const pa = (S.meusPassos || []).find(x => x.origem === origem && x.ref_id === ref && x.passo_id === pid);
   if (!pa){ toast("Esse passo não está mais com você.", true); return; }
-  if (!isOwnSpace()){ if (origem === "demanda" && typeof openDemandaFromAgenda === "function") openDemandaFromAgenda(ref); else if (typeof openEventoPeek === "function") openEventoPeek(ref, pa.prazo || pa.data_ref); return; }
-  const dt = pa.prazo || pa.data_ref;
-  overlay(`<div class="mhead"><div class="mt">🎯 Passo atribuído a você</div><button class="x" data-close>×</button></div>
-    <div class="mbody"><div style="font-size:17px;font-weight:600;margin-bottom:6px">${esc(pa.texto)}</div>
-      <p class="note" style="margin:0">De <b>${esc(pa.dono_nome)}</b> · ${origem === "demanda" ? "demanda" : "compromisso"} <b>${esc(pa.titulo)}</b>${dt ? ` · prazo ${fmtYmd(dt, { day: "2-digit", month: "2-digit", year: "numeric" })}` : ""}</p>
-      <label class="chk" style="margin-top:14px;font-size:15px"><input type="checkbox" id="paOk" ${pa.feito ? "checked" : ""}> Passo concluído</label>
-      <p class="note">Ao concluir, ${esc(pa.dono_nome)} vê no histórico que foi você.</p>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn" data-close>Fechar</button></div></div>`, "small");
-  $("#paOk").onchange = async e => {
-    try { await API.rpc("passo_marcar", { p_origem: origem, p_id: ref, p_passo: pid, p_feito: e.target.checked });
-      pa.feito = e.target.checked; toast(pa.feito ? "Passo concluído." : "Passo reaberto."); closeModal(true); await loadMeusPassos(); renderAll(); }
-    catch(ex){ toast(errMsg(ex), true); e.target.checked = !e.target.checked; }
-  };
+  const meu = isOwnSpace();
+  passoCard({ texto: pa.texto, prazo: pa.prazo || pa.data_ref, feito: pa.feito, titulo: pa.titulo, origem, de: pa.dono_nome,
+    para: meu ? "Você" : spaceName(), podeMarcar: meu,
+    abrir: (origem === "demanda" && getD(ref)) ? () => openDemandaPeek(ref) : null,
+    marcar: async f => { await API.rpc("passo_marcar", { p_origem: origem, p_id: ref, p_passo: pid, p_feito: f }); await loadMeusPassos(); } });
+}
+function openPassoDono(chave){
+  const [did, cid] = chave.split("~"); const d = getD(did); const c = d && (d.checklist || []).find(x => x.id === cid);
+  if (!c){ toast("Passo não encontrado.", true); return; }
+  passoCard({ texto: c.texto, prazo: c.prazo, feito: !!c.feito, feitoPor: c.feitoPor, titulo: d.titulo, origem: "demanda",
+    para: respNomes(c.resp), podeMarcar: !soLeitura(), abrir: () => openDemandaPeek(did),
+    marcar: async f => updateD(did, it => { const x = it.checklist.find(y => y.id === cid); if (!x) return;
+      x.feito = f; x.feitoEm = f ? Date.now() : null; x.feitoPor = f ? S.me.nome : null;
+      it.historico.push(actorTag({ tipo: "check", em: Date.now(), texto: (f ? "Passo concluído: " : "Passo reaberto: ") + x.texto })); }) });
 }
 
 /* ---------- membro vendo o espaço de outro (só visualizar) ---------- */
