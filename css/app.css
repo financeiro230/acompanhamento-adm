@@ -893,3 +893,8 @@ html,body{max-width:100%;overflow-x:hidden}
   header{gap:8px}
   header .spacesel{max-width:160px}
 }
+.chip.atrib.out{background:repeating-linear-gradient(135deg,#0e749014 0 6px,#0e749026 6px 12px);border-color:#0e7490;color:#155e75}
+.chip.atrib.out .atg,.agl-it.atrib.out .atg{background:#0e7490;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agl-it.atrib.out{background:repeating-linear-gradient(135deg,#0e74900d 0 8px,#0e74901c 8px 16px);border-color:#0e7490}
+.agl-it.atrib.out .bar{background:#0e7490}
+.agl-it.atrib.out .ti{color:#155e75}

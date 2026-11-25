@@ -56,11 +56,16 @@ function respPainel(c, attr){
 }
 
 /* ---------- passos atribuídos a mim ---------- */
-async function loadMeusPassos(){ try { S.meusPassos = await API.rpc("meus_passos", {}); } catch { S.meusPassos = S.meusPassos || []; } }
+async function loadMeusPassos(){
+  const alvo = (S.space && S.me && S.space !== S.me.id) ? S.space : null;
+  try { S.meusPassos = alvo ? await API.rpc("passos_de", { p_alvo: alvo }) : await API.rpc("meus_passos", {}); }
+  catch { S.meusPassos = alvo ? [] : (S.meusPassos || []); }
+}
 function openPassoA(chave){
   const [origem, ref, pid] = chave.split("~");
   const pa = (S.meusPassos || []).find(x => x.origem === origem && x.ref_id === ref && x.passo_id === pid);
   if (!pa){ toast("Esse passo não está mais com você.", true); return; }
+  if (!isOwnSpace()){ if (origem === "demanda" && typeof openDemandaFromAgenda === "function") openDemandaFromAgenda(ref); else if (typeof openEventoPeek === "function") openEventoPeek(ref, pa.prazo || pa.data_ref); return; }
   const dt = pa.prazo || pa.data_ref;
   overlay(`<div class="mhead"><div class="mt">🎯 Passo atribuído a você</div><button class="x" data-close>×</button></div>
     <div class="mbody"><div style="font-size:17px;font-weight:600;margin-bottom:6px">${esc(pa.texto)}</div>
@@ -85,7 +90,7 @@ document.addEventListener("DOMContentLoaded", function(){
     RT.meus.set(row.id, Date.now()); return _persist(t, row);
   };
   window.remove = function(t, id){ if (soLeitura()){ toast("Você está só visualizando este espaço.", true); return Promise.resolve(); } RT.meus.set(id, Date.now()); return _remove(t, id); };
-  window.reloadSpace = async function(a){ if (S.me && isOwnSpace()) await loadMeusPassos(); return _reload(a); };
+  window.reloadSpace = async function(a){ if (S.me) await loadMeusPassos(); return _reload(a); };
   window.renderHeader = function(){
     _header();
     const sel = $("#spaceSel"); if (!sel || !S.me) return;
