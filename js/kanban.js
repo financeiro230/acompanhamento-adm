@@ -6,6 +6,7 @@ const getD = id => S.demandas.find(d => d.id === id);
 
 const KF = { filtro: "todos" };
 function matchesFilter(it){
+  if (!origemOk("kanban", demCompart(it))) return false;
   const f = KF.filtro, today = todayYmd();
   if (f === "alta" || f === "p_alta") return prioKey(it.prioridade) === "alta";
   if (f === "p_media") return prioKey(it.prioridade) === "media";
@@ -106,7 +107,8 @@ function renderKanban(){
   v.innerHTML = `<div class="kbar"><button class="btn primary" data-act="newD">＋ Nova demanda</button>
       <div class="ksearch"><span>🔎</span><input id="kSearch" placeholder="${isMob() ? "Pesquisar demandas…" : "Pesquisar no kanban (título, descrição, atualizações, passos)…"}" value="${esc(S.q||"")}">${S.q ? `<button class="ckb" data-act="kclear" title="Limpar">×</button>` : ""}</div>
       <select class="fld" id="kFiltro" style="width:auto">${[["todos","Todas"],["p_alta","▲ Prioridade alta"],["p_media","◆ Prioridade média"],["p_baixa","▼ Prioridade baixa"],["vencido","Com prazo vencido"],["semana","Prazo nos próximos 7 dias"],["semprazo","Sem prazo"]].map(([k,l]) => `<option value="${k}" ${KF.filtro===k?"selected":""}>${l}</option>`).join("")}</select>
-      ${S.q || KF.filtro !== "todos" ? `<span class="note">${shown} de ${total}</span>` : ""}
+      ${origemSegHtml("kanban", "data-korig")}
+      ${S.q || KF.filtro !== "todos" || origemVis("kanban") !== "todas" ? `<span class="note">${shown} de ${total}</span>` : ""}
       <div class="spacer"></div>
       ${isOwnSpace() ? `<button class="btn" data-act="cols" title="Meus quadros">⚙<span class="hide-sm"> Meus quadros</span></button>` : ""}</div>
     ${mob ? mobCols() : `<div class="board" style="grid-template-columns:repeat(${ncols},minmax(230px,1fr))">${lat.length ? `<div class="stack">${lat.map(colHtml).join("")}</div>` : ""}
@@ -116,6 +118,7 @@ function renderKanban(){
   ks.oninput = () => { const pos = ks.selectionStart; S.q = ks.value; $("#search").value = S.q; renderKanban(); const n = $("#kSearch"); n.focus(); n.setSelectionRange(pos, pos); };
   if (K.kFocus){ ks.focus(); ks.setSelectionRange(ks.value.length, ks.value.length); K.kFocus = false; }
   $("#kFiltro").onchange = e => { KF.filtro = e.target.value; renderKanban(); };
+  $$("[data-korig]").forEach(b => b.onclick = () => { origemSet("kanban", b.dataset.korig); renderKanban(); });
   $$("[data-mcol]").forEach(b => b.onclick = () => { K.mcol = b.dataset.mcol; renderKanban(); });
   const mc = $(".mcols .on"); if (mc) mc.scrollIntoView({ block: "nearest", inline: "center" });
 }

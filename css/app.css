@@ -907,3 +907,7 @@ html,body{max-width:100%;overflow-x:hidden}
 .pcard .pc-orig{font-size:12.5px;color:var(--muted);margin-top:10px}
 .pcard .pc-btn{width:100%;margin-top:14px;padding:11px;font-size:15px;font-weight:700;justify-content:center}
 .pcard .pc-acts{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+.origseg button{padding:6px 10px;font-size:12.5px;white-space:nowrap}
+.filt .origseg{display:flex;flex-direction:column;width:100%}
+.filt .origseg button{text-align:left}
+@media (max-width:900px){ .kbar .origseg{order:6;grid-column:1/-1;width:100%;display:flex} .kbar .origseg button{flex:1;padding:6px 4px;font-size:12px} .kbar>.note{order:7} }

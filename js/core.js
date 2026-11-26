@@ -258,3 +258,16 @@ function prazoTag(p, status){
   if (diff <= 2) return `<span class="tag soon">${txt}</span>`;
   return `<span class="tag">${txt}</span>`;
 }
+
+/* ===== atualização 16: ver minhas demandas, as compartilhadas comigo, ou tudo junto (escolha de cada membro) ===== */
+const ORIG_OPC = [["todas","Tudo junto"],["minhas","Só minhas"],["compart","Compartilhadas comigo"]];
+function origemVis(onde){ try { const v = JSON.parse(localStorage.getItem("cu_vis_" + (S.me ? S.me.id : "")) || "{}")[onde]; return ORIG_OPC.some(o => o[0] === v) ? v : "todas"; } catch { return "todas"; } }
+function origemSet(onde, v){ try { const k = "cu_vis_" + (S.me ? S.me.id : ""); const o = JSON.parse(localStorage.getItem(k) || "{}"); o[onde] = v; localStorage.setItem(k, JSON.stringify(o)); } catch {} }
+const donoEspaco = () => S.space || (S.me && S.me.id);
+const demCompart = d => !!d && d.dono !== donoEspaco();
+const evCompart = ev => !!ev && (!!ev.grupo || (!!ev.criado_por && ev.criado_por !== ev.dono));
+function origemOk(onde, compart){ const v = origemVis(onde); return v === "todas" || (v === "compart" ? compart : !compart); }
+function origemSegHtml(onde, attr){
+  const v = origemVis(onde);
+  return `<div class="seg origseg" title="Escolha o que aparece">${ORIG_OPC.map(([k, l]) => `<button type="button" ${attr}="${k}" class="${v === k ? "on" : ""}">${k === "compart" ? "👥 " : k === "minhas" ? "👤 " : ""}${l}</button>`).join("")}</div>`;
+}

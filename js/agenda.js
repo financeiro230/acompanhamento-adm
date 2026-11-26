@@ -90,7 +90,18 @@ function instances(from, to){
       title:pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, atrib:true, de:pa.dono_nome, ref:pa.titulo, color:"#7c3aed", done:false, late: dt < today });
   }
   out.push(...gInstances(from, to));
-  return out.sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
+  return out.filter(origemItemOk).sort((a,b) => a.date.localeCompare(b.date) || (a.allDay===b.allDay ? 0 : a.allDay ? -1 : 1) || (a.start??0)-(b.start??0) || a.title.localeCompare(b.title));
+}
+// filtro "minhas / compartilhadas comigo / tudo junto" aplicado a cada item da agenda
+function origemItemOk(i){
+  if (origemVis("agenda") === "todas") return true;
+  const [k, id] = String(i.key || "").split("|");
+  let c = false;
+  if (k === "pa") c = true;
+  else if (k === "e") c = evCompart(getE(id));
+  else if (k === "d") c = demCompart(getD(id));
+  else if (k === "po") c = demCompart(getD(id.split("~")[0]));
+  return origemOk("agenda", c);
 }
 function lateList(){
   const today = todayYmd(), from = ymd(addDays(new Date(), -30)), yest = ymd(addDays(new Date(), -1));
@@ -103,7 +114,7 @@ function lateList(){
   passos.push(...(S.meusPassos || []).filter(pa => !pa.feito && (pa.prazo || pa.data_ref) && (pa.prazo || pa.data_ref) < today)
     .map(pa => ({ key:`pa|${pa.origem}~${pa.ref_id}~${pa.passo_id}|${pa.prazo || pa.data_ref}`, kind:"passo", id:pa.ref_id, date:pa.prazo || pa.data_ref, allDay:true, title:pa.texto, sub:`${pa.titulo} · de ${pa.dono_nome}`, atrib:true, de:pa.dono_nome, ref:pa.titulo, color:"#7c3aed", late:true })));
   const vistos = new Set();
-  return [...late, ...(A.filt.prazo ? prazos : []), ...passos]
+  return [...late, ...(A.filt.prazo ? prazos : []), ...passos].filter(origemItemOk)
     .filter(i => { const k = `${i.kind}|${i.id}|${i.date}|${i.title}`; if (vistos.has(k)) return false; vistos.add(k); return true; })
     .sort((a,b) => a.date.localeCompare(b.date));
 }
@@ -235,6 +246,7 @@ function renderSide(){
     </div>
     ${canAssign() ? (() => { const ab = S.atribuidas.filter(e => !(e.recorrencia === "nenhuma" ? e.concluida : false)).length;
       return `<div class="sumbox"><h4>Equipe</h4><button class="sum" data-ag="atrib"><span>📤 Atribuídas por mim</span><b>${ab}</b></button></div>`; })() : ""}
+    <div class="filt"><h4>Ver</h4>${origemSegHtml("agenda", "data-aorig")}</div>
     <div class="filt"><h4>Mostrar</h4>
       <label class="chk"><input type="checkbox" data-filt="evento" ${A.filt.evento?"checked":""}> <span class="dot" style="background:var(--c-evento)"></span> Eventos</label>
       <label class="chk"><input type="checkbox" data-filt="missao" ${A.filt.missao?"checked":""}> <span class="dot" style="background:var(--c-missao)"></span> Missões</label>
@@ -366,6 +378,8 @@ document.addEventListener("change", e => {
   if (f.dataset.filt === "concl"){ const p = prefs(); p.agConcluidas = f.checked; savePrefs(p); toast(f.checked ? "Concluídas e finalizadas aparecem na agenda." : "Concluídas e finalizadas escondidas da agenda."); }
 });
 document.addEventListener("click", e => {
+  const ao = e.target.closest("[data-aorig]");
+  if (ao){ origemSet("agenda", ao.dataset.aorig); renderAgenda(); return; }
   if (S.view !== "agenda" || e.target.closest("#modalRoot")) return;
   const t = e.target;
   const dn = t.closest("[data-done]");
